@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
-// @namespace    https://github.com/yourname/
-// @version      0.7
+// @namespace    https://github.com/HeavenTTT/bilibili-blacklist
+// @version      0.8
 // @description  屏蔽指定 UP 主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
 // @grant        GM_setValue
@@ -329,18 +329,18 @@
     // 在右侧导航栏添加黑名单管理按钮
     function addBlacklistManagerButton() {
         if (isVideoPage()) {
-            console.log('[Bilibili-BlackList] 视频页面不添加黑名单管理按钮');
+            //console.log('[Bilibili-BlackList] 视频页面不添加黑名单管理按钮');
             return;
         }
     
         const rightEntry = document.querySelector('.right-entry');
         if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
-            console.log('[Bilibili-BlackList] 黑名单管理按钮已存在或右侧导航栏不存在');
+            //console.log('[Bilibili-BlackList] 黑名单管理按钮已存在或右侧导航栏不存在');
             return;
         }
         
 
-        console.log('[Bilibili-BlackList] 添加黑名单管理按钮');
+        //console.log('[Bilibili-BlackList] 添加黑名单管理按钮');
         const li = document.createElement('li');
         li.id = 'bilibili-blacklist-manager';
         li.style.cursor = 'pointer';
@@ -517,7 +517,7 @@
                 
                 if (container) {
                     container.remove();
-                    console.log(`[Bilibili-BlackList] 已屏蔽: ${upName}`);
+                    //console.log(`[Bilibili-BlackList] 已屏蔽: ${upName}`);
                 }
             }
         });
@@ -525,7 +525,7 @@
         // addBlockButtons();
     
         if (!foundElements) {
-            console.log('[Bilibili-BlackList] 警告: 未找到任何UP主元素');
+            //console.log('[Bilibili-BlackList] 警告: 未找到任何UP主元素');
         }
     }
 
@@ -558,7 +558,7 @@
             setTimeout(() => {
                 BlockUp();
                 addBlockButtons();
-                addBlacklistManagerButton();
+                //addBlacklistManagerButton();
             }, 1000);
         }
     });
@@ -573,7 +573,7 @@
                 setTimeout(() => {
                     BlockUp();
                     addBlockButtons();
-                    addBlacklistManagerButton();
+                    //addBlacklistManagerButton();
                 }, 1000);
             });
         }
