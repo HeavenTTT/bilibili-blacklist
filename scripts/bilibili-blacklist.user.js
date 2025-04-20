@@ -347,13 +347,13 @@
     // 在右侧导航栏添加黑名单管理按钮
     function addBlacklistManagerButton() {
         if (isVideoPage()) {
-            console.log('[Bilibili-BlackList] 视频页面不添加黑名单管理按钮');
+            //console.log('[Bilibili-BlackList] 视频页面不添加黑名单管理按钮');
             return;
         }
     
         const rightEntry = document.querySelector('.right-entry');
         if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
-            console.log('[Bilibili-BlackList] 黑名单管理按钮已存在或右侧导航栏不存在');
+            //console.log('[Bilibili-BlackList] 黑名单管理按钮已存在或右侧导航栏不存在');
             return;
         }
         
@@ -560,7 +560,32 @@
             //console.log('[Bilibili-BlackList] 警告: 未找到任何UP主元素');
         }
     }
-
+    function BlockAD() {
+        // 屏蔽某些推广
+        document.querySelectorAll('.floor-single-card').forEach(adCard => {
+            adCard.remove();
+        });
+        //屏蔽直播推广
+        document.querySelectorAll('.bili-live-card').forEach(adCard => {
+            adCard.remove();
+        });
+    }
+    function BlockVideoPageAd() {
+        // 屏蔽右上角推广
+        document.querySelectorAll('.video-card-ad-small').forEach(adCard => {
+            adCard.remove();
+        });
+        //大推广
+        document.querySelectorAll('.slide-ad-exp').forEach(adCard => {
+            adCard.remove();
+        });
+        //游戏推广
+        document.querySelectorAll('.video-page-game-card-small').forEach(adCard => {
+            adCard.remove();
+        });
+       
+        
+    }
     // 初始化观察者 (watches for DOM changes)
     function initObserver() {
         const rootNode = document.getElementById('i_cecream') || // Bilibili's main container IDs
@@ -592,8 +617,10 @@
         if (shouldCheck) {
             setTimeout(() => {
                 BlockUp();
+                BlockAD();
                 addBlockButtons();
                 addBlacklistManagerButton();
+                BlockVideoPageAd();
             }, 1000);
         }
     });
@@ -603,16 +630,21 @@
         BlockUp(); // Initial blocking
         initObserver(); // Start watching for changes
         addBlacklistManagerButton(); // Add management button
-        
+        BlockAD();
+       
         // Also check when scrolling (for infinite scroll pages)
         if(!isVideoPage()) {
             window.addEventListener('scroll', () => {
                 setTimeout(() => {
                     BlockUp();
                     addBlockButtons();
+                    BlockAD();
                     //addBlacklistManagerButton();
                 }, 1000);
             });
+        }else
+        {
+            
         }
     }
 
