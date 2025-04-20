@@ -319,18 +319,31 @@
         document.body.appendChild(panel);
         return panel;
     }
-
+    function isVideoPage() {
+        if (window.location.pathname.startsWith('/video/')) {
+            return true;
+        } else {
+            return false;
+        }
+    }
     // 在右侧导航栏添加黑名单管理按钮
     function addBlacklistManagerButton() {
-        const rightEntry = document.querySelector('.right-entry');
-        if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
+        if (isVideoPage()) {
+            console.log('[Bilibili-BlackList] 视频页面不添加黑名单管理按钮');
             return;
         }
+    
+        const rightEntry = document.querySelector('.right-entry');
+        if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
+            console.log('[Bilibili-BlackList] 黑名单管理按钮已存在或右侧导航栏不存在');
+            return;
+        }
+        
 
+        console.log('[Bilibili-BlackList] 添加黑名单管理按钮');
         const li = document.createElement('li');
         li.id = 'bilibili-blacklist-manager';
         li.style.cursor = 'pointer';
-        li.style.marginBottom = '16px';
 
         const btn = document.createElement('div');
         btn.className = 'right-entry-item';
@@ -349,9 +362,6 @@
         icon.style.color = '#fb7299';
 
         const text = document.createElement('div');
-        text.textContent = '屏蔽管理';
-        text.style.fontSize = '12px';
-        text.style.marginTop = '4px';
 
         btn.appendChild(icon);
         btn.appendChild(text);
@@ -439,6 +449,7 @@
     const selectors = [
         '.bili-video-card__info--owner span[title]',
         '.bili-video-card__text span[title]',
+        '.video-page-card-small .upname',
     ];
     
     // 共用函数：查找UP主名称元素并提取名称
@@ -450,7 +461,7 @@
                 foundElements = true;
                 const title = element.getAttribute('title') || element.textContent.trim();
                 const upName = title.split(' ')[0];
-                
+                //console.log(`[Bilibili-BlackList] 找到UP主: ${upName}`);
                 callback(element, upName);
             });
         });
@@ -465,7 +476,7 @@
                 return;
             }
             
-            const cover = videoCard.querySelector('.bili-video-card__wrap');
+            const cover = videoCard.querySelector('.bili-video-card__wrap') || videoCard.querySelector('.card-box');
             if (!cover) return;
             
             if (window.getComputedStyle(cover).position === 'static') {
@@ -501,6 +512,7 @@
             if (isBlacklisted(upName)) {
                 const container = element.closest('.feed-card') || 
                                  element.closest('.bili-video-card') || 
+                                 element.closest('.video-page-card-small') || 
                                  element.closest('.video-card');
                 
                 if (container) {
@@ -520,6 +532,7 @@
     // 初始化观察者
     function initObserver() {
         const rootNode = document.getElementById('i_cecream') || 
+                        document.getElementById('app') ||
                         document.documentElement;
         
         if (rootNode) {
@@ -555,13 +568,15 @@
         initObserver();
         addBlacklistManagerButton();
         
-        window.addEventListener('scroll', () => {
-            setTimeout(() => {
-                BlockUp();
-                addBlockButtons();
-                addBlacklistManagerButton();
-            }, 1000);
-        });
+        if(!isVideoPage()) {
+            window.addEventListener('scroll', () => {
+                setTimeout(() => {
+                    BlockUp();
+                    addBlockButtons();
+                    addBlacklistManagerButton();
+                }, 1000);
+            });
+        }
     }
 
     document.addEventListener('DOMContentLoaded', init);
