@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/yourname/
-// @version      0.4
+// @version      0.5
 // @description  屏蔽指定 UP 主的视频推荐，并支持手动添加屏蔽
 // @match        *://*.bilibili.com/*
 // @grant        GM_setValue
@@ -74,6 +74,11 @@
             const cover = videoCard.querySelector('.bili-video-card__cover');
             if (!cover) return;
             
+            // 确保封面容器有正确的定位上下文
+            if (window.getComputedStyle(cover).position === 'static') {
+                cover.style.position = 'relative';
+            }
+            
             const upNameElement = videoCard.querySelector('.bili-video-card__info--owner') || 
                                 videoCard.querySelector('.bili-video-card__text span[title]');
             if (!upNameElement) return;
@@ -82,7 +87,6 @@
             const upName = title.split(' ')[0];
             
             const btn = createBlockButton(upName);
-            cover.style.position = 'relative';
             cover.appendChild(btn);
             
             videoCard.addEventListener('mouseenter', () => {
@@ -103,7 +107,7 @@
 
     function BlockUp() {
         const selectors = [
-            '.bili-video-card__info--owner span[title]',
+            '.bili-video-card__info--owner',
             '.bili-video-card__text span[title]',
         ];
 
@@ -117,13 +121,11 @@
                 const upName = title.split(' ')[0];
                 
                 if (blacklist.includes(upName)) {
-                    // 查找最近的feed-card或bili-video-card容器
                     const container = element.closest('.feed-card') || 
                                      element.closest('.bili-video-card') || 
                                      element.closest('.video-card');
                     
                     if (container) {
-                        // 直接移除整个容器元素
                         container.remove();
                         console.log(`[Bilibili-BlackList] 已屏蔽: ${upName}`);
                     }
@@ -131,7 +133,6 @@
             });
         });
 
-        // 添加屏蔽按钮
         addBlockButtons();
 
         if (!foundElements) {
@@ -139,7 +140,7 @@
         }
     }
 
-    // 更可靠的观察者初始化
+    // 初始化观察者
     function initObserver() {
         const rootNode = document.getElementById('i_cecream') || 
                         document.documentElement;
@@ -171,7 +172,6 @@
         }
     });
 
-    // 更全面的初始化
     function init() {
         BlockUp();
         initObserver();
@@ -189,12 +189,20 @@
         init();
     }
 
-    // 添加全局样式
+    // 添加全局样式修复布局问题
     const style = document.createElement('style');
     style.textContent = `
         .bili-video-card:hover .bilibili-blacklist-block-btn {
             display: flex !important;
             opacity: 1 !important;
+        }
+        /* 修复封面容器高度问题 */
+        .bili-video-card__cover {
+            contain: layout !important;
+        }
+        /* 确保屏蔽按钮不会影响布局 */
+        .bilibili-blacklist-block-btn {
+            pointer-events: auto !important;
         }
     `;
     document.head.appendChild(style);
