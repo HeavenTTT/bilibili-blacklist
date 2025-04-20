@@ -13,7 +13,7 @@
     'use strict';
 
     // 从存储中获取黑名单，如果没有则使用默认值
-    let blacklist = GM_getValue('blacklist', ['究刺_Official','时空小涵','CF辰辰','火影忍者萝卜','绝区零','崩坏星穹铁道','转生成为毛毛','鸣潮','俗小雅','蛋仔岛咚咚咩','小小的我_Official_5','小小的我_Official_6','小小的我_Official_7','小小的我_Official_8','小小的我_Official_9','小小的我_Official_10']);
+    let blacklist = GM_getValue('blacklist', ['绝区零','崩坏星穹铁道','崩坏3','原神','米哈游miHoYo']);
 
     // 保存黑名单到存储
     function saveBlacklist() {
