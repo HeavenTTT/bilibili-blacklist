@@ -1,19 +1,23 @@
 // ==UserScript==
+// Metadata block defining the script properties
 // @name         Bilibili-BlackList
-// @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      0.8
+// @namespace     https://github.com/HeavenTTT/bilibili-blacklist
+// @version      0.8.D
+// @author       HeavenTTT
 // @description  屏蔽指定 UP 主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_addStyle
+// @grant        GM_setValue 
+// @grant        GM_getValue 
+// @grant        GM_addStyle   
 // ==/UserScript==
 
 (function () {
     'use strict';
 
     // 从存储中获取黑名单
+    // Default exact match blacklist (case sensitive)
     let exactBlacklist = GM_getValue('exactBlacklist', ['绝区零','崩坏星穹铁道','崩坏3','原神','米哈游miHoYo']);
+    // Default regex match blacklist
     let regexBlacklist = GM_getValue('regexBlacklist', ['王者荣耀.*','和平精英.*','PUBG.*','绝地求生.*','吃鸡.*']);
 
     // 保存黑名单到存储
@@ -24,8 +28,10 @@
 
     // 创建黑名单管理面板
     function createBlacklistPanel() {
+        // Create main panel container
         const panel = document.createElement('div');
         panel.id = 'bilibili-blacklist-panel';
+        // Styling for the panel (centered modal)
         panel.style.position = 'fixed';
         panel.style.top = '50%';
         panel.style.left = '50%';
@@ -45,13 +51,15 @@
         tabContainer.style.display = 'flex';
         tabContainer.style.borderBottom = '1px solid #f1f2f3';
 
+        // Exact match tab
         const exactTab = document.createElement('div');
         exactTab.textContent = '精确匹配';
         exactTab.style.padding = '12px 16px';
         exactTab.style.cursor = 'pointer';
         exactTab.style.fontWeight = '500';
-        exactTab.style.borderBottom = '2px solid #fb7299';
+        exactTab.style.borderBottom = '2px solid #fb7299'; // Pink underline for active tab
 
+        // Regex match tab
         const regexTab = document.createElement('div');
         regexTab.textContent = '正则匹配';
         regexTab.style.padding = '12px 16px';
@@ -60,6 +68,7 @@
         tabContainer.appendChild(exactTab);
         tabContainer.appendChild(regexTab);
 
+        // Panel header
         const header = document.createElement('div');
         header.style.padding = '16px';
         header.style.borderBottom = '1px solid #f1f2f3';
@@ -73,6 +82,7 @@
         title.style.fontSize = '16px';
         title.style.fontWeight = '500';
 
+        // Close button
         const closeBtn = document.createElement('button');
         closeBtn.textContent = '×';
         closeBtn.style.background = 'none';
@@ -125,7 +135,7 @@
         const addExactBtn = document.createElement('button');
         addExactBtn.textContent = '添加';
         addExactBtn.style.padding = '8px 16px';
-        addExactBtn.style.background = '#fb7299';
+        addExactBtn.style.background = '#fb7299'; // Bilibili pink color
         addExactBtn.style.color = '#fff';
         addExactBtn.style.border = 'none';
         addExactBtn.style.borderRadius = '4px';
@@ -137,7 +147,7 @@
                 saveBlacklists();
                 exactInput.value = '';
                 updateExactList();
-                BlockUp();
+                BlockUp(); // Re-run blocking after update
             }
         });
 
@@ -171,12 +181,12 @@
             const regex = regexInput.value.trim();
             if (regex && !regexBlacklist.includes(regex)) {
                 try {
-                    new RegExp(regex); // 测试正则表达式是否有效
+                    new RegExp(regex); // Test if regex is valid
                     regexBlacklist.push(regex);
                     saveBlacklists();
                     regexInput.value = '';
                     updateRegexList();
-                    BlockUp();
+                    BlockUp(); // Re-run blocking after update
                 } catch (e) {
                     alert('无效的正则表达式: ' + e.message);
                 }
@@ -199,6 +209,7 @@
         regexList.style.padding = '0';
         regexList.style.margin = '0';
 
+        // Update exact match list display
         function updateExactList() {
             exactList.innerHTML = '';
             exactBlacklist.forEach((upName, index) => {
@@ -216,7 +227,7 @@
                 const removeBtn = document.createElement('button');
                 removeBtn.textContent = '移除';
                 removeBtn.style.padding = '4px 8px';
-                removeBtn.style.background = '#f56c6c';
+                removeBtn.style.background = '#f56c6c'; // Red color
                 removeBtn.style.color = '#fff';
                 removeBtn.style.border = 'none';
                 removeBtn.style.borderRadius = '4px';
@@ -225,7 +236,7 @@
                     exactBlacklist.splice(index, 1);
                     saveBlacklists();
                     updateExactList();
-                    BlockUp();
+                    BlockUp(); // Re-run blocking after update
                 });
 
                 item.appendChild(name);
@@ -233,6 +244,7 @@
                 exactList.appendChild(item);
             });
 
+            // Show empty state if no items
             if (exactBlacklist.length === 0) {
                 const empty = document.createElement('div');
                 empty.textContent = '暂无精确匹配屏蔽UP主';
@@ -243,6 +255,7 @@
             }
         }
 
+        // Update regex match list display
         function updateRegexList() {
             regexList.innerHTML = '';
             regexBlacklist.forEach((regex, index) => {
@@ -256,7 +269,7 @@
                 const regexText = document.createElement('span');
                 regexText.textContent = regex;
                 regexText.style.flex = '1';
-                regexText.style.fontFamily = 'monospace';
+                regexText.style.fontFamily = 'monospace'; // Monospace font for regex
 
                 const removeBtn = document.createElement('button');
                 removeBtn.textContent = '移除';
@@ -270,7 +283,7 @@
                     regexBlacklist.splice(index, 1);
                     saveBlacklists();
                     updateRegexList();
-                    BlockUp();
+                    BlockUp(); // Re-run blocking after update
                 });
 
                 item.appendChild(regexText);
@@ -278,6 +291,7 @@
                 regexList.appendChild(item);
             });
 
+            // Show empty state if no items
             if (regexBlacklist.length === 0) {
                 const empty = document.createElement('div');
                 empty.textContent = '暂无正则匹配屏蔽规则';
@@ -288,6 +302,7 @@
             }
         }
 
+        // Initialize lists
         updateExactList();
         updateRegexList();
 
@@ -319,6 +334,8 @@
         document.body.appendChild(panel);
         return panel;
     }
+
+    // Check if current page is a video page
     function isVideoPage() {
         if (window.location.pathname.startsWith('/video/')) {
             return true;
@@ -326,20 +343,20 @@
             return false;
         }
     }
+
     // 在右侧导航栏添加黑名单管理按钮
     function addBlacklistManagerButton() {
         if (isVideoPage()) {
-            //console.log('[Bilibili-BlackList] 视频页面不添加黑名单管理按钮');
+            console.log('[Bilibili-BlackList] 视频页面不添加黑名单管理按钮');
             return;
         }
     
         const rightEntry = document.querySelector('.right-entry');
         if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
-            //console.log('[Bilibili-BlackList] 黑名单管理按钮已存在或右侧导航栏不存在');
+            console.log('[Bilibili-BlackList] 黑名单管理按钮已存在或右侧导航栏不存在');
             return;
         }
         
-
         //console.log('[Bilibili-BlackList] 添加黑名单管理按钮');
         const li = document.createElement('li');
         li.id = 'bilibili-blacklist-manager';
@@ -352,6 +369,7 @@
         btn.style.alignItems = 'center';
         btn.style.justifyContent = 'center';
 
+        // Shield icon SVG
         const icon = document.createElement('div');
         icon.innerHTML = `
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
@@ -359,7 +377,7 @@
                 <path d="M9 12l2 2 4-4"/>
             </svg>
         `;
-        icon.style.color = '#fb7299';
+        icon.style.color = '#fb7299'; // Bilibili pink color
 
         const text = document.createElement('div');
 
@@ -367,17 +385,20 @@
         btn.appendChild(text);
         li.appendChild(btn);
 
+        // Insert button in the navigation
         if (rightEntry.children.length > 1) {
             rightEntry.insertBefore(li, rightEntry.children[1]);
         } else {
             rightEntry.appendChild(li);
         }
 
+        // Create panel if it doesn't exist
         let panel = document.getElementById('bilibili-blacklist-panel');
         if (!panel) {
             panel = createBlacklistPanel();
         }
 
+        // Show panel when button is clicked
         li.addEventListener('click', () => {
             panel.style.display = 'flex';
         });
@@ -410,18 +431,19 @@
         if (!exactBlacklist.includes(upName)) {
             exactBlacklist.push(upName);
             saveBlacklists();
-            console.log(`[Bilibili-BlackList] 已添加 ${upName} 到精确黑名单`);
-            BlockUp();
+            //console.log(`[Bilibili-BlackList] 已添加 ${upName} 到精确黑名单`);
+            BlockUp(); // Re-run blocking after update
         }
     }
 
-    // 创建屏蔽按钮
+    // 创建屏蔽按钮 (appears when hovering over video cards)
     function createBlockButton(upName) {
         const btn = document.createElement('div');
         btn.className = 'bilibili-blacklist-block-btn';
         btn.innerHTML = '×';
         btn.title = '屏蔽此UP主';
         
+        // Styling for the block button
         btn.style.position = 'absolute';
         btn.style.top = '5px';
         btn.style.left = '5px';
@@ -439,29 +461,32 @@
         btn.style.fontWeight = 'bold';
         btn.style.transition = 'opacity 0.2s';
         
+        // Add to blacklist when clicked
         btn.addEventListener('click', (e) => {
-            e.stopPropagation();
+            e.stopPropagation(); // Prevent event bubbling
             addToExactBlacklist(upName);
         });
         
         return btn;
     }
+
+    // CSS selectors for finding UP names in different page layouts
     const selectors = [
-        '.bili-video-card__info--owner span[title]',
-        '.bili-video-card__text span[title]',
-        '.video-page-card-small .upname',
+        '.bili-video-card__info--owner span[title]', // Main page cards
+        '.bili-video-card__text span[title]',       // Alternative card style
+        '.video-page-card-small .upname',           // Small cards
     ];
     
     // 共用函数：查找UP主名称元素并提取名称
     function findUpNameElements(callback) {
         let foundElements = false;
         
+        // Check all selectors for UP name elements
         selectors.forEach(selector => {
             document.querySelectorAll(selector).forEach(element => {
                 foundElements = true;
                 const title = element.getAttribute('title') || element.textContent.trim();
-                const upName = title.split(' ')[0];
-                //console.log(`[Bilibili-BlackList] 找到UP主: ${upName}`);
+                const upName = title.split(' ')[0]; // Get first part of title (before space)
                 callback(element, upName);
             });
         });
@@ -472,23 +497,28 @@
     // 为每个视频卡片添加屏蔽按钮
     function addBlockButtons() {
         document.querySelectorAll('.bili-video-card').forEach(videoCard => {
+            // Skip if button already exists
             if (videoCard.querySelector('.bilibili-blacklist-block-btn')) {
                 return;
             }
             
+            // Find the video cover element
             const cover = videoCard.querySelector('.bili-video-card__wrap') || videoCard.querySelector('.card-box');
             if (!cover) return;
             
+            // Make sure cover has relative positioning
             if (window.getComputedStyle(cover).position === 'static') {
                 cover.style.position = 'relative';
             }
             
             // 使用共用函数查找UP主名称
             findUpNameElements((element, upName) => {
+                // Make sure we're working with the current video card
                 if (element.closest('.bili-video-card') === videoCard) {
                     const btn = createBlockButton(upName);
                     cover.appendChild(btn);
                     
+                    // Show button on hover
                     videoCard.addEventListener('mouseenter', () => {
                         btn.style.display = 'flex';
                         setTimeout(() => {
@@ -496,6 +526,7 @@
                         }, 10);
                     });
                     
+                    // Hide button when not hovering
                     videoCard.addEventListener('mouseleave', () => {
                         btn.style.opacity = '0';
                         setTimeout(() => {
@@ -507,14 +538,17 @@
         });
     }
     
+    // Main function to block videos from blacklisted UP
     function BlockUp() {
         const foundElements = findUpNameElements((element, upName) => {
             if (isBlacklisted(upName)) {
+                // Find the closest video container element
                 const container = element.closest('.feed-card') || 
                                  element.closest('.bili-video-card') || 
                                  element.closest('.video-page-card-small') || 
                                  element.closest('.video-card');
                 
+                // Remove the entire video card if matched
                 if (container) {
                     container.remove();
                     //console.log(`[Bilibili-BlackList] 已屏蔽: ${upName}`);
@@ -522,30 +556,30 @@
             }
         });
     
-        // addBlockButtons();
-    
         if (!foundElements) {
             //console.log('[Bilibili-BlackList] 警告: 未找到任何UP主元素');
         }
     }
 
-    // 初始化观察者
+    // 初始化观察者 (watches for DOM changes)
     function initObserver() {
-        const rootNode = document.getElementById('i_cecream') || 
+        const rootNode = document.getElementById('i_cecream') || // Bilibili's main container IDs
                         document.getElementById('app') ||
                         document.documentElement;
         
         if (rootNode) {
             observer.observe(rootNode, {
-                childList: true,
-                subtree: true
+                childList: true,  // Watch for added/removed nodes
+                subtree: true     // Watch all descendants
             });
-            console.log('[Bilibili-BlackList] 监听已启动');
+            //console.log('[Bilibili-BlackList] 监听已启动');
         } else {
+            // Retry if root node not found
             setTimeout(initObserver, 500);
         }
     }
 
+    // MutationObserver to detect new content loaded dynamically
     const observer = new MutationObserver((mutations) => {
         let shouldCheck = false;
         mutations.forEach(mutation => {
@@ -554,20 +588,23 @@
             }
         });
         
+        // Run blocking after new content is added
         if (shouldCheck) {
             setTimeout(() => {
                 BlockUp();
                 addBlockButtons();
-                //addBlacklistManagerButton();
+                addBlacklistManagerButton();
             }, 1000);
         }
     });
 
+    // Main initialization function
     function init() {
-        BlockUp();
-        initObserver();
-        addBlacklistManagerButton();
+        BlockUp(); // Initial blocking
+        initObserver(); // Start watching for changes
+        addBlacklistManagerButton(); // Add management button
         
+        // Also check when scrolling (for infinite scroll pages)
         if(!isVideoPage()) {
             window.addEventListener('scroll', () => {
                 setTimeout(() => {
@@ -579,6 +616,7 @@
         }
     }
 
+    // Run when DOM is ready
     document.addEventListener('DOMContentLoaded', init);
     if (document.readyState === 'interactive' || document.readyState === 'complete') {
         init();
@@ -586,31 +624,38 @@
 
     // 添加全局样式
     GM_addStyle(`
+        /* Style for block button hover effect */
         .bili-video-card:hover .bilibili-blacklist-block-btn {
             display: flex !important;
             opacity: 1 !important;
         }
+        /* Fix for video card layout */
         .bili-video-card__cover {
             contain: layout !important;
         }
+        /* Ensure block button is clickable */
         .bilibili-blacklist-block-btn {
             pointer-events: auto !important;
         }
+        /* Panel styling */
         #bilibili-blacklist-panel {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
+        /* Button hover effects */
         #bilibili-blacklist-panel button {
             transition: background-color 0.2s;
         }
         #bilibili-blacklist-panel button:hover {
             opacity: 0.9;
         }
+        /* Manager button hover effect */
         #bilibili-blacklist-manager:hover svg {
             transform: scale(1.1);
         }
         #bilibili-blacklist-manager svg {
             transition: transform 0.2s;
         }
+        /* Input focus effect */
         #bilibili-blacklist-panel input:focus {
             outline: none;
             border-color: #fb7299 !important;
