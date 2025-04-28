@@ -583,9 +583,20 @@
         document.querySelectorAll('.video-page-game-card-small').forEach(adCard => {
             adCard.remove();
         });
-       
+        //游戏推广
+        document.querySelectorAll('.activity-m-v1').forEach(adCard => {
+            adCard.remove();
+        });
+        //游戏推广
+        document.querySelectorAll('.video-page-special-card-small').forEach(adCard => {
+            adCard.remove();
+        });
+        //游戏推广
+        document.querySelectorAll('.ad-floor-exp').forEach(adCard => {
+            adCard.remove();
+        });
         
-    }
+        }
     // 初始化观察者 (watches for DOM changes)
     function initObserver() {
         const rootNode = document.getElementById('i_cecream') || // Bilibili's main container IDs
