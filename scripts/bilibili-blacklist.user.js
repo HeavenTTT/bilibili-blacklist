@@ -2,7 +2,7 @@
 // 元数据块定义脚本属性
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      0.9.0
+// @version      1.0.0
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
@@ -14,22 +14,245 @@
 // ==/UserScript==
 
 (function () {
-    'use strict';
-
+    "use strict";
     // 从存储中获取黑名单
     // 默认精确匹配黑名单（区分大小写）
-    let exactBlacklist = GM_getValue('exactBlacklist', ['绝区零','崩坏星穹铁道','崩坏3','原神','米哈游miHoYo']);
+    let exactBlacklist = GM_getValue("exactBlacklist", [
+        "绝区零",
+        "崩坏星穹铁道",
+        "崩坏3",
+        "原神",
+        "米哈游miHoYo",
+    ]);
     // 默认正则匹配黑名单
-    let regexBlacklist = GM_getValue('regexBlacklist', ['王者荣耀.*','和平精英.*','PUBG.*','绝地求生.*','吃鸡.*']);
-    // 新增标题正则黑名单
-    let titleRegexBlacklist = GM_getValue('titleRegexBlacklist', ['原神.*']); 
+    let regexBlacklist = GM_getValue("regexBlacklist", [
+        "王者荣耀.*",
+        "和平精英.*",
+        "PUBG.*",
+        "绝地求生.*",
+        "吃鸡.*",
+    ]);
     // 保存黑名单到存储
     function saveBlacklists() {
-        GM_setValue('exactBlacklist', exactBlacklist);
-        GM_setValue('regexBlacklist', regexBlacklist);
-        GM_setValue('titleRegexBlacklist', titleRegexBlacklist);
+        GM_setValue("exactBlacklist", exactBlacklist);
+        GM_setValue("regexBlacklist", regexBlacklist);
+    }
+    //#region 核心功能 - 屏蔽视频卡片
+    let isShowAll = false; // 是否显示全部视频卡片
+    let blockCount = 0; // 屏蔽的视频卡片数量
+    //let blockedCards = []; // 存储已屏蔽的视频卡片
+    // 视频卡片选择器
+    const selectorVideoCards = [
+        ".feed-card", // 旧版卡片样式
+        ".bili-video-card", // 新版卡片样式
+        ".video-page-card-small", // 播放页小卡片
+    ];
+    /// 查找所有视频卡片
+    function querySelectorAllVideoCard() {
+        return selectorVideoCards.flatMap((selector) =>
+            Array.from(document.querySelectorAll(selector))
+        ); // 使用flatMap将所有选择器匹配到的元素合并为一个数组
     }
 
+    function BlockCard() {
+        const cards = querySelectorAllVideoCard();
+        console.log("检测到视频卡片数量:", cards.length);
+        cards.forEach((card) => {
+            // 获取视频信息
+            GetVideoInfo(card, (upName, title) => {
+                //console.log(`UP主名称: ${upName}, 视频标题: ${title}`);
+                if (upName && title) {
+                    // 如果UP主名称和视频标题都存在
+                    if (!card.querySelector(".bilibili-blacklist-block-btn")) {
+                        // 创建屏蔽按钮
+                        if (!isVideoPage()) {
+                            const blockButton = createBlockButton(upName);
+                            card.appendChild(blockButton); // 将按钮添加到卡片中
+                        } else {
+                            if (isInit) {
+                                const blockButton = createBlockButton(upName);
+                                card.querySelector(".card-box").style.position = "relative"; // 确保信息容器有相对定位
+                                card.querySelector(".card-box").appendChild(blockButton); // 将按钮添加到卡片信息中
+                                //card.appendChild(blockButton); // 将按钮添加到卡片中
+                            }
+                            //播放页不添加按钮
+                            //TODO:下次试试看别的方式
+                        }
+                    }
+                    // 检查是否在黑名单中
+                    if (isBlacklisted(upName, title)) {
+                        // 如果在黑名单中，则隐藏卡片
+                        if (!isShowAll) {
+                            card.style.display = "none"; // 隐藏卡片
+                            blockCount++; // 增加屏蔽计数
+                            //blockedCards.push(card); // 将卡片添加到已屏蔽列表
+                            //console.log(`已屏蔽视频: ${title} (UP主: ${upName})`);
+                        }
+                    }
+                }
+            });
+        });
+    }
+
+    const selectorUpName = [
+        ".bili-video-card__info--author", // 主页
+        ".bili-video-card__author", // 分类页面--> span title
+        ".name", // 播放页面
+    ];
+    const selectorTitle = [
+        ".bili-video-card__info--tit", // 主页
+        ".bili-video-card__title", // 分类页面--> span title
+        ".title", // 播放页面
+    ];
+    //获取视频信息 -UP主名称 -视频标题
+    function GetVideoInfo(card, callback) {
+        let flag = false; // 标志位，表示是否找到视频信息
+        let upName = "";
+        let title = "";
+        if (card.style.display === "none") return false; // 如果卡片已经被隐藏，则跳过
+        const upNameElement = card.querySelectorAll(selectorUpName.join(", ")); // 使用逗号分隔的选择器
+        if (upNameElement.length > 0) {
+            upName = upNameElement[0].textContent.trim(); // 获取第一个匹配到的元素的内容，并去除首尾空格
+            //处理分类页面的UP主名称
+            if (isCategoryPage()) {
+                upName = upName.split(" · ")[0].trim();
+                //console.log(`分类页面UP主名称: ${upName}`);
+            }
+        }
+        const titleElement = card.querySelectorAll(selectorTitle.join(", ")); // 使用逗号分隔的选择器
+        if (titleElement.length > 0) {
+            title = titleElement[0].textContent.trim(); // 获取第一个匹配到的元素的内容，并去除首尾空格
+        }
+        if (upName && title) {
+            flag = true;
+            callback(upName, title);
+        }
+        return flag;
+    }
+    function isBlacklisted(upName, title) {
+        //TODO:判断是否在黑名单中
+        if (exactBlacklist.includes(upName)) {
+            console.log(`精确匹配黑名单: ${upName}`);
+            return true; // 精确匹配黑名单
+        }
+        if (regexBlacklist.some((regex) => new RegExp(regex).test(upName))) {
+            console.log(`正则匹配黑名单: ${upName}`);
+            return true; // 正则匹配黑名单
+        }
+        if (regexBlacklist.some((regex) => new RegExp(regex).test(title))) {
+            console.log(`标题正则黑名单: ${title}`);
+            return true; // 新增标题正则黑名单
+        }
+        return false; // 不在黑名单中
+    }
+    // 添加UP主到精确黑名单
+    function addToExactBlacklist(upName) {
+        if (!exactBlacklist.includes(upName)) {
+            exactBlacklist.push(upName);
+            saveBlacklists();
+            BlockCard(); // 更新后重新执行屏蔽
+        }
+    }
+    //#endregion
+    //#region 页面修改
+    //创建屏蔽按钮（悬停在视频卡片上时显示）
+    function createBlockButton(upName) {
+        const btn = document.createElement("div");
+        btn.className = "bilibili-blacklist-block-btn";
+        btn.innerHTML = "×";
+        btn.title = `屏蔽: ${upName}`;
+
+        // 屏蔽按钮样式
+        btn.style.position = "absolute";
+        btn.style.top = "5px";
+        btn.style.left = "5px";
+        btn.style.width = "35px";
+        btn.style.height = "20px";
+        btn.style.backgroundColor = "#fb7299dd";
+        btn.style.color = "white";
+        btn.style.borderRadius = "5%";
+        btn.style.display = "none";
+        btn.style.justifyContent = "center";
+        btn.style.alignItems = "center";
+        btn.style.cursor = "pointer";
+        btn.style.zIndex = "100";
+        btn.style.fontSize = "16px";
+        btn.style.fontWeight = "bold";
+        btn.style.transition = "opacity 0.2s";
+
+        // 点击时添加到黑名单
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation(); // 防止事件冒泡
+            addToExactBlacklist(upName);
+        });
+
+        return btn;
+    }
+    // 在右侧导航栏添加黑名单管理按钮
+    let blockCountDiv = null;
+    function addBlacklistManagerButton() {
+        if (isVideoPage()) {
+            return;
+        }
+        console.log("添加黑名单管理按钮");
+        const rightEntry = document.querySelector('.right-entry');
+        if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
+            return;
+        }
+
+        const li = document.createElement('li');
+        li.id = 'bilibili-blacklist-manager';
+        li.style.cursor = 'pointer';
+        li.className = 'v-popover-wrap';
+
+        const btn = document.createElement('div');
+        btn.className = 'right-entry-item';
+        btn.style.display = 'flex';
+        btn.style.flexDirection = 'column';
+        btn.style.alignItems = 'center';
+        btn.style.justifyContent = 'center';
+
+        // 盾牌图标SVG
+        const icon = document.createElement('div');
+        icon.className = 'right-entry__outside';
+        icon.innerHTML = getKirbySVG();
+        //icon.style.color = '#fb7299'; // B站粉色
+        icon.style.marginBottom = '-5px';
+        blockCountDiv = document.createElement('span');
+        //const text = document.createElement('div');
+        blockCountDiv.textContent = `0`;
+        btn.appendChild(icon);
+        btn.appendChild(blockCountDiv);
+        li.appendChild(btn);
+
+        // 在导航中插入按钮
+        if (rightEntry.children.length > 1) {
+            rightEntry.insertBefore(li, rightEntry.children[1]);
+        } else {
+            rightEntry.appendChild(li);
+        }
+
+        // 如果面板不存在则创建
+        let panel = document.getElementById('bilibili-blacklist-panel');
+        if (!panel) {
+            panel = createBlacklistPanel();
+        }
+
+        // 点击按钮时显示面板
+        li.addEventListener('click', () => {
+            // 更新面板标题显示当前页面已屏蔽数量
+            const titleElement = panel.querySelector('h3');
+            if (titleElement) {
+                titleElement.textContent = `已屏蔽视频 (${blockCount})`;
+            }
+            if (panel.style.display === 'none') {
+                panel.style.display = 'flex';
+            } else {
+                panel.style.display = 'none';
+            }
+
+        });
+    }
     // 创建黑名单管理面板
     function createBlacklistPanel() {
         // 创建主面板容器
@@ -85,7 +308,37 @@
         title.style.margin = '0';
         title.style.fontSize = '16px';
         title.style.fontWeight = '500';
+        /*
+        // 暂时取消屏蔽
+        const tempUnblockBtn = document.createElement('button');
+        tempUnblockBtn.textContent = '暂时取消屏蔽';
+        tempUnblockBtn.style.padding = '8px 16px';
+        tempUnblockBtn.style.border = 'none';
+        tempUnblockBtn.style.borderRadius = '4px';
+        tempUnblockBtn.style.backgroundColor = '#fb7299'; // B站粉色
+        tempUnblockBtn.style.color = '#fff';
+        tempUnblockBtn.style.cursor = 'pointer';
+        tempUnblockBtn.style.marginRight = '8px';
+        tempUnblockBtn.addEventListener('click', () => {
+            // 暂时取消屏蔽的逻辑
+            console.log('暂时取消屏蔽');
+            if (isShowAll) {
+                // 如果已经显示全部，则恢复原来的屏蔽状态
+                BlockCard(); // 重新执行屏蔽
+                isShowAll = false; // 恢复为不显示全部
+                tempUnblockBtn.textContent = '暂时取消屏蔽'; // 更新按钮文本
+            } else {
+                // 如果当前是屏蔽状态，则显示全部
+                const cards = querySelectorAllVideoCard();
+                cards.forEach((card) => {
+                    card.style.display = 'block'; // 显示所有卡片
+                });
+                isShowAll = true; // 设置为显示全部状态
+                tempUnblockBtn.textContent = '恢复屏蔽'; // 更新按钮文本
 
+            }
+        })
+        */
         // 关闭按钮
         const closeBtn = document.createElement('button');
         closeBtn.textContent = '×';
@@ -98,7 +351,9 @@
             panel.style.display = 'none';
         });
 
+
         header.appendChild(title);
+        //header.appendChild(tempUnblockBtn);
         header.appendChild(closeBtn);
 
         // 内容区域
@@ -338,347 +593,15 @@
         document.body.appendChild(panel);
         return panel;
     }
-
-    // 检查当前页面是否为视频页面
-    function isVideoPage() {
-        if (window.location.pathname.startsWith('/video/')) {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    // 在右侧导航栏添加黑名单管理按钮
-    function addBlacklistManagerButton() {
-        if (isVideoPage()) {
-            return;
-        }
-    
-        const rightEntry = document.querySelector('.right-entry');
-        if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
-            return;
-        }
-        
-        const li = document.createElement('li');
-        li.id = 'bilibili-blacklist-manager';
-        li.style.cursor = 'pointer';
-
-        const btn = document.createElement('div');
-        btn.className = 'right-entry-item';
-        btn.style.display = 'flex';
-        btn.style.flexDirection = 'column';
-        btn.style.alignItems = 'center';
-        btn.style.justifyContent = 'center';
-
-        // 盾牌图标SVG
-        const icon = document.createElement('div');
-        icon.innerHTML = `
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                <path d="M9 12l2 2 4-4"/>
-            </svg>
-        `;
-        icon.style.color = '#fb7299'; // B站粉色
-
-        const text = document.createElement('div');
-
-        btn.appendChild(icon);
-        btn.appendChild(text);
-        li.appendChild(btn);
-
-        // 在导航中插入按钮
-        if (rightEntry.children.length > 1) {
-            rightEntry.insertBefore(li, rightEntry.children[1]);
-        } else {
-            rightEntry.appendChild(li);
-        }
-
-        // 如果面板不存在则创建
-        let panel = document.getElementById('bilibili-blacklist-panel');
-        if (!panel) {
-            panel = createBlacklistPanel();
-        }
-
-        // 点击按钮时显示面板
-        li.addEventListener('click', () => {
-            // 更新面板标题显示当前页面已屏蔽数量
-            const titleElement = panel.querySelector('h3');
-            if (titleElement) {
-                titleElement.textContent = `已屏蔽视频 (${blockedVideoCount})`;
-            }
-            panel.style.display = 'flex';
-        });
-    }
-
-    // 检查是否匹配黑名单
-    function isBlacklisted(upName) {
-        // 检查精确匹配
-        if (exactBlacklist.includes(upName)) {
-            return true;
-        }
-
-        // 检查正则匹配
-        for (const regex of regexBlacklist) {
-            try {
-                const regExp = new RegExp(regex);
-                if (regExp.test(upName)) {
-                    return true;
-                }
-            } catch (e) {
-                console.error(`[Bilibili-BlackList] 无效的正则表达式: ${regex}`, e);
-            }
-        }
-
-        return false;
-    }
-   
-    // 添加UP主到精确黑名单
-    function addToExactBlacklist(upName) {
-        if (!exactBlacklist.includes(upName)) {
-            exactBlacklist.push(upName);
-            saveBlacklists();
-            BlockUp(); // 更新后重新执行屏蔽
-        }
-    }
-
-    // 创建屏蔽按钮（悬停在视频卡片上时显示）
-    function createBlockButton(upName) {
-        const btn = document.createElement('div');
-        btn.className = 'bilibili-blacklist-block-btn';
-        btn.innerHTML = '×';
-        btn.title = '屏蔽此UP主';
-        
-        // 屏蔽按钮样式
-        btn.style.position = 'absolute';
-        btn.style.top = '5px';
-        btn.style.left = '5px';
-        btn.style.width = '40px';
-        btn.style.height = '20px';
-        btn.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-        btn.style.color = 'white';
-        btn.style.borderRadius = '5%';
-        btn.style.display = 'none';
-        btn.style.justifyContent = 'center';
-        btn.style.alignItems = 'center';
-        btn.style.cursor = 'pointer';
-        btn.style.zIndex = '100';
-        btn.style.fontSize = '16px';
-        btn.style.fontWeight = 'bold';
-        btn.style.transition = 'opacity 0.2s';
-        
-        // 点击时添加到黑名单
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation(); // 防止事件冒泡
-            addToExactBlacklist(upName);
-        });
-        
-        return btn;
-    }
-
-    // 查找UP主名称元素的不同页面布局的CSS选择器
-    const selectors = [
-        '.bili-video-card__info--owner span[title]', // 主页卡片
-        '.bili-video-card__text span[title]',       // 替代卡片样式
-        '.video-page-card-small .upname',           // 小卡片
-    ];
-    
-    // 共用函数：查找UP主名称元素并提取名称
-    function findUpNameElements(callback) {
-        let foundElements = false;
-        
-        // 检查所有选择器的UP主名称元素
-        selectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(element => {
-                foundElements = true;
-                const title = element.getAttribute('title') || element.textContent.trim();
-                const upName = title.split(' ')[0]; // 获取标题的第一部分（空格前）
-                callback(element, upName);
-            });
-        });
-        
-        return foundElements;
-    }
-    
-    // 为每个视频卡片添加屏蔽按钮
-    function addBlockButtons() {
-        document.querySelectorAll('.bili-video-card').forEach(videoCard => {
-            // 如果按钮已存在则跳过
-            if (videoCard.querySelector('.bilibili-blacklist-block-btn')) {
-                return;
-            }
-            
-            // 查找视频封面元素
-            const cover = videoCard.querySelector('.bili-video-card__wrap') || videoCard.querySelector('.card-box');
-            if (!cover) return;
-            
-            // 确保封面有相对定位
-            if (window.getComputedStyle(cover).position === 'static') {
-                cover.style.position = 'relative';
-            }
-            
-            // 使用共用函数查找UP主名称
-            findUpNameElements((element, upName) => {
-                // 确保我们处理的是当前视频卡片
-                if (element.closest('.bili-video-card') === videoCard) {
-                    const btn = createBlockButton(upName);
-                    cover.appendChild(btn);
-                    
-                    // 悬停时显示按钮
-                    videoCard.addEventListener('mouseenter', () => {
-                        btn.style.display = 'flex';
-                        setTimeout(() => {
-                            btn.style.opacity = '1';
-                        }, 10);
-                    });
-                    
-                    // 不悬停时隐藏按钮
-                    videoCard.addEventListener('mouseleave', () => {
-                        btn.style.opacity = '0';
-                        setTimeout(() => {
-                            btn.style.display = 'none';
-                        }, 500);
-                    });
-                }
-            });
-        });
-    }
-    let blockedVideoCount = 0; // 在函数外部初始化计数器
-    // 主函数：屏蔽黑名单UP主的视频
-    function BlockUp() {
-        const foundElements = findUpNameElements((element, upName) => {
-            if (isBlacklisted(upName)) {
-                // 查找最近的视频容器元素
-                const container = element.closest('.feed-card') || 
-                                 element.closest('.bili-video-card') || 
-                                 element.closest('.video-page-card-small') || 
-                                 element.closest('.video-card');
-                
-                // 如果匹配则移除整个视频卡片
-                if (container) {
-                    container.remove();
-                    blockedVideoCount++; // 增加计数
-                }
-            }
-        });
-    
-        if (!foundElements) {
-            console.log('[Bilibili-BlackList] 警告: 未找到任何UP主元素');
-        }
-    }
-
-    // 屏蔽广告
-    function BlockAD() {
-        // 屏蔽某些推广
-        document.querySelectorAll('.floor-single-card').forEach(adCard => {
-            adCard.remove();
-        });
-        // 屏蔽直播推广
-        document.querySelectorAll('.bili-live-card').forEach(adCard => {
-            adCard.remove();
-        });
-    }
-
-    // 屏蔽视频页面广告（使用数组优化）
-    function BlockVideoPageAd() {
-        const adSelectors = [
-            '.video-card-ad-small',          // 右上角推广
-            '.slide-ad-exp',                 // 大推广
-            '.video-page-game-card-small',   // 游戏推广
-            '.activity-m-v1',                // 活动推广
-            '.video-page-special-card-small', // 特殊卡片推广
-            '.ad-floor-exp'                  // 广告地板
-        ];
-        
-        adSelectors.forEach(selector => {
-            document.querySelectorAll(selector).forEach(adCard => {
-                adCard.remove();
-            });
-        });
-    }
-
-    // 初始化观察者（监视DOM变化）
-    function initObserver() {
-        const rootNode = document.getElementById('i_cecream') || // B站的主容器ID
-                        document.getElementById('app') ||
-                        document.documentElement;
-        
-        if (rootNode) {
-            observer.observe(rootNode, {
-                childList: true,  // 监视添加/移除的节点
-                subtree: true     // 监视所有后代
-            });
-        } else {
-            // 如果没找到根节点则重试
-            setTimeout(initObserver, 500);
-        }
-    }
-
-    // MutationObserver检测动态加载的新内容
-    const observer = new MutationObserver((mutations) => {
-        let shouldCheck = false;
-        mutations.forEach(mutation => {
-            if (mutation.addedNodes.length > 0) {
-                shouldCheck = true;
-            }
-        });
-        
-        // 添加新内容后执行屏蔽
-        if (shouldCheck) {
-            setTimeout(() => {
-                BlockUp();
-                BlockAD();
-                addBlockButtons();
-                addBlacklistManagerButton();
-                BlockVideoPageAd();
-                 // 如果需要实时显示在按钮上，可以在这里更新按钮文本
-                 const managerButton = document.getElementById('bilibili-blacklist-manager');
-                 if (managerButton) {
-                     const textDiv = managerButton.querySelector('.right-entry-item > div:last-child');
-                     if (textDiv) {
-                         textDiv.textContent = `${blockedVideoCount}`;
-                     }
-                 }
-            }, 1000);
-        }
-    });
-
-    // 主初始化函数
-    function init() {
-        BlockUp(); // 初始屏蔽
-        initObserver(); // 开始监视变化
-        addBlacklistManagerButton(); // 添加管理按钮
-        BlockAD();
-       
-        // 滚动时也检查（针对无限滚动页面）
-        if(!isVideoPage()) {
-            window.addEventListener('scroll', () => {
-                setTimeout(() => {
-                    BlockUp();
-                    addBlockButtons();
-                    BlockAD();
-                    // 如果需要实时显示在按钮上，可以在这里更新按钮文本
-                    const managerButton = document.getElementById('bilibili-blacklist-manager');
-                    if (managerButton) {
-                        const textDiv = managerButton.querySelector('.right-entry-item > div:last-child');
-                        if (textDiv) {
-                            textDiv.textContent = `${blockedVideoCount}`;
-                        }
-                    }
-                }, 1000);
-            });
-        }
-    }
-
-    // DOM准备就绪时运行
-
-    document.addEventListener('DOMContentLoaded', init);
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-        init();
-    }
     // 添加全局样式
     GM_addStyle(`
         /* 屏蔽按钮悬停效果 */
         .bili-video-card:hover .bilibili-blacklist-block-btn {
+            display: flex !important;
+            opacity: 1 !important;
+        }
+        /* 屏蔽按钮悬停效果 - 支持card-box内的按钮 */
+        .card-box:hover .bilibili-blacklist-block-btn {
             display: flex !important;
             opacity: 1 !important;
         }
@@ -713,6 +636,219 @@
             outline: none;
             border-color: #fb7299 !important;
         }
-    `);
 
+
+    `);
+    //可爱的卡比图标
+    function getKirbySVG() {
+        return `
+        <svg width="30" height="30" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"  >
+            <ellipse cx="70" cy="160" rx="30" ry="15" fill="#cc3333" />
+            <ellipse cx="130" cy="160" rx="30" ry="15" fill="#cc3333" />
+            <ellipse cx="50" cy="120" rx="20" ry="20" fill="#ffb6c1" />
+            <ellipse cx="150" cy="120" rx="20" ry="20" fill="#ffb6c1" />
+            <circle cx="100" cy="110" r="60" fill="#ffb6c1" />
+            <ellipse cx="80" cy="90" rx="10" ry="22" fill="blue" />
+            <ellipse cx="80" cy="88" rx="10" ry="15" fill="black" />
+            <ellipse cx="80" cy="82" rx="8" ry="12" fill="#ffffff" />
+            <ellipse cx="80" cy="90" rx="10" ry="22" fill="#00000000" stroke="#000000" strokeWidth="4" />
+            <ellipse cx="120" cy="90" rx="10" ry="22" fill="blue" />
+            <ellipse cx="120" cy="88" rx="10" ry="15" fill="black" />
+            <ellipse cx="120" cy="82" rx="8" ry="12" fill="#ffffff" />
+            <ellipse cx="120" cy="90" rx="10" ry="22" fill="#00000000" stroke="#000000" strokeWidth="4" />
+            <ellipse cx="60" cy="110" rx="8" ry="5" fill="#ff4466" />
+            <ellipse cx="140" cy="110" rx="8" ry="5" fill="#ff4466" />
+            <path d="M 90 118 Q 100 125, 110 118" stroke="black" strokeWidth="3" fill="transparent" />
+        </svg>
+    `;
+    }
+    //#endregion
+    //##########################
+
+    //#region 观察者
+    // MutationObserver 检测动态加载的新内容（仅当节点可见时才触发）
+    const observer = new MutationObserver((mutations) => {
+        let shouldCheck = false;
+        if (isVideoPage()) {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length > 0) {
+                    // 检查新增节点是否可见（有宽度或高度）
+                    shouldCheck = Array.from(mutation.addedNodes).some((node) => {
+                        // 仅检查元素节点（跳过文本节点、注释等）
+                        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+
+                        // 检查元素或其子元素是否可见
+                        const hasVisibleContent =
+                            node.offsetWidth > 0 ||
+                            node.offsetHeight > 0 ||
+                            node.querySelector("[offsetWidth], [offsetHeight]");
+
+                        return hasVisibleContent;
+                    });
+                }
+            });
+        } else {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length > 0) {
+                    shouldCheck = true;
+                }
+            });
+        }
+
+        // 如果有可见的新内容，延迟 1 秒后执行屏蔽（确保 DOM 完全渲染）
+        if (shouldCheck) {
+            setTimeout(() => {
+                BlockCard();
+                addBlacklistManagerButton(); // 确保每次都添加黑名单管理按钮
+                if (isMainPage()) {
+                    BlockAD(); // 屏蔽页面广告
+                }
+                if (isVideoPage()) {
+                    BlockVideoPageAd(); // 屏蔽视频页面广告
+                }
+                // 如果需要实时显示在按钮上，可以在这里更新按钮文本
+                const managerButton = document.getElementById('bilibili-blacklist-manager');
+                if (managerButton) {
+                    //const textDiv = managerButton.querySelector('.right-entry-text > div:last-child');
+                    // if (textDiv) {
+                    //    textDiv.textContent = `${blockCount}`;
+                    //}
+                    blockCountDiv.textContent = `${blockCount}`;
+                }
+            }, 1000);
+        }
+    });
+
+    // 初始化观察者（监视 DOM 变化）
+    let observerError = 0;
+    function initObserver(container) {
+        const rootNode =
+            document.getElementById(container) || // B站的主容器 ID
+            document.documentElement; // 回退到整个文档
+
+        if (rootNode) {
+            observer.observe(rootNode, {
+                childList: true, // 监视添加/移除的节点
+                subtree: true, // 监视所有后代
+            });
+            return true;
+        } else {
+            // 如果没找到根节点则重试
+            setTimeout(() => initObserver(container), 500);
+            console.warn("未找到根节点，正在重试...");
+            observerError++;
+
+            if (observerError > 10) {
+                console.error("重试次数过多，停止重试。");
+                return false;
+            }
+        }
+    }
+    //#endregion
+    //#region 初始化函数
+
+    let isInit = false; // 是否已经初始化
+    function init() {
+        if (isMainPage()) {
+            initMainPage(); // 初始化主页
+            BlockAD(); // 屏蔽主页广告
+        } else if (isSearchPage()) {
+            initSearchPage(); // 初始化搜索页
+        } else if (isVideoPage()) {
+            initVideoPage(); // 初始化播放页
+            //BlockVideoPageAd(); // 屏蔽视频页面广告
+        } else if (isCategoryPage()) {
+            initCategoryPage(); // 初始化分类页
+        } else {
+            //console.log("🥚");
+        }
+        BlockCard(); // 初始化时立即执行屏蔽
+        addBlacklistManagerButton(); // 添加黑名单管理按钮
+        isInit = true; // 标记为已初始化
+        console.log("BiliBili黑名单脚本已加载🥔");
+    }
+    // 监听页面加载完成事件
+    document.addEventListener("DOMContentLoaded", init);
+    if (
+        document.readyState === "interactive" ||
+        document.readyState === "complete"
+    ) {
+        init();
+    }
+    // 检查当前页面是否为B站主页
+    function isMainPage() {
+        return location.pathname === "/";
+    }
+
+    function initMainPage() {
+        initObserver("i_cecream"); // 传入B站主页的主容器ID
+        console.log("主页已加载🍓");
+    }
+    /// ----主页结束----
+    /// -----搜索页----
+    function isSearchPage() {
+        //页面链接 https://search.bilibili.com/all?keyword=xxx
+        // 通过检查路径名是否以 "/search" 开头来判断是否为搜索页
+        return location.hostname === "search.bilibili.com";
+    }
+    function initSearchPage() {
+        initObserver("i_cecream"); // 传入B站搜索页的主容器ID
+        console.log("搜索页已加载🍉");
+    }
+    /// --- 搜索页结束---
+    /// --- 播放页 ---
+    function isVideoPage() {
+        // 页面链接 https://www.bilibili.com/video/BV1xxxxxx
+        // 通过检查路径名是否以 "/video/" 开头来判断是否为视频页
+        return location.pathname.startsWith("/video/");
+    }
+    function initVideoPage() {
+        initObserver("app"); // 传入B站播放页的主容器ID
+        console.log("播放页已加载🍇");
+    }
+    /// ---- 播放页结束 ---
+    /// ---- 分类页 ----
+    function isCategoryPage() {
+        // 页面链接 https://www.bilibili.com/c/xxxxxx
+        // 通过检查路径名是否以 "/c/" 开头来判断是否为分类页
+        return location.pathname.startsWith("/c/");
+    }
+    function initCategoryPage() {
+        initObserver("app"); // 传入B站分类页的主容器ID
+        console.log("分类页已加载🍊");
+    }
+    /// --- 分类页结束 ---
+    //#endregion
+
+    //#region 额外功能-屏蔽广告
+    // 屏蔽广告
+    function BlockAD() {
+        // 屏蔽某些推广
+        document.querySelectorAll('.floor-single-card').forEach(adCard => {
+            adCard.remove();
+        });
+        // 屏蔽直播推广
+        document.querySelectorAll('.bili-live-card').forEach(adCard => {
+            adCard.remove();
+        });
+    }
+
+    // 屏蔽视频页面广告（使用数组优化）
+    function BlockVideoPageAd() {
+        const adSelectors = [
+            '.video-card-ad-small',          // 右上角推广
+            '.slide-ad-exp',                 // 大推广
+            '.video-page-game-card-small',   // 游戏推广
+            '.activity-m-v1',                // 活动推广
+            '.video-page-special-card-small', // 特殊卡片推广
+            '.ad-floor-exp'                  // 广告地板
+        ];
+
+        adSelectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(adCard => {
+                adCard.remove();
+            });
+        });
+    }
+    //#endregion
 })();
