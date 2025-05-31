@@ -675,7 +675,6 @@
     if (document.readyState === 'interactive' || document.readyState === 'complete') {
         init();
     }
-
     // 添加全局样式
     GM_addStyle(`
         /* 屏蔽按钮悬停效果 */
@@ -715,4 +714,5 @@
             border-color: #fb7299 !important;
         }
     `);
+
 })();
