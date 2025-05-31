@@ -2,7 +2,7 @@
 // 元数据块定义脚本属性
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.0.0
+// @version      1.0.1
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
@@ -497,7 +497,7 @@
                     exactBlacklist.splice(index, 1);
                     saveBlacklists();
                     updateExactList();
-                    BlockUp(); // 更新后重新执行屏蔽
+                    BlockCard(); // 更新后重新执行屏蔽
                 });
 
                 item.appendChild(name);
@@ -715,7 +715,10 @@
                     // if (textDiv) {
                     //    textDiv.textContent = `${blockCount}`;
                     //}
-                    blockCountDiv.textContent = `${blockCount}`;
+                    if (blockCountDiv) {
+                        blockCountDiv.textContent = `${blockCount}`; // 更新黑名单数量
+                    }
+                    
                 }
             }, 1000);
         }
