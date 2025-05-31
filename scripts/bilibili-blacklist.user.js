@@ -2,7 +2,7 @@
 // 元数据块定义脚本属性
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.0.1
+// @version      1.0.2
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
@@ -58,7 +58,7 @@
 
     function BlockCard() {
         const cards = querySelectorAllVideoCard();
-        console.log("检测到视频卡片数量:", cards.length);
+        //console.log("检测到视频卡片数量:", cards.length);
         cards.forEach((card) => {
             // 获取视频信息
             GetVideoInfo(card, (upName, title) => {
@@ -134,15 +134,15 @@
     function isBlacklisted(upName, title) {
         //TODO:判断是否在黑名单中
         if (exactBlacklist.includes(upName)) {
-            console.log(`精确匹配黑名单: ${upName}`);
+            //console.log(`精确匹配黑名单: ${upName}`);
             return true; // 精确匹配黑名单
         }
         if (regexBlacklist.some((regex) => new RegExp(regex).test(upName))) {
-            console.log(`正则匹配黑名单: ${upName}`);
+            //console.log(`正则匹配黑名单: ${upName}`);
             return true; // 正则匹配黑名单
         }
         if (regexBlacklist.some((regex) => new RegExp(regex).test(title))) {
-            console.log(`标题正则黑名单: ${title}`);
+            //console.log(`标题正则黑名单: ${title}`);
             return true; // 新增标题正则黑名单
         }
         return false; // 不在黑名单中
@@ -196,7 +196,7 @@
         if (isVideoPage()) {
             return;
         }
-        console.log("添加黑名单管理按钮");
+        //console.log("添加黑名单管理按钮");
         const rightEntry = document.querySelector('.right-entry');
         if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
             return;
@@ -408,7 +408,7 @@
                 saveBlacklists();
                 exactInput.value = '';
                 updateExactList();
-                BlockUp(); // 更新后重新执行屏蔽
+                BlockCard(); // 更新后重新执行屏蔽
             }
         });
 
@@ -447,7 +447,7 @@
                     saveBlacklists();
                     regexInput.value = '';
                     updateRegexList();
-                    BlockUp(); // 更新后重新执行屏蔽
+                    BlockCard(); // 更新后重新执行屏蔽
                 } catch (e) {
                     alert('无效的正则表达式: ' + e.message);
                 }
@@ -544,7 +544,7 @@
                     regexBlacklist.splice(index, 1);
                     saveBlacklists();
                     updateRegexList();
-                    BlockUp(); // 更新后重新执行屏蔽
+                    BlockCard(); // 更新后重新执行屏蔽
                 });
 
                 item.appendChild(regexText);
