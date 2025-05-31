@@ -10,7 +10,7 @@
 // @grant        GM_getValue 
 // @grant        GM_addStyle
 // @icon         https://www.bilibili.com/favicon.ico
-// @require      https://github.com/HeavenTTT/bilibili-blacklist/raw/refs/heads/main/scripts/bilibili-blacklist.user.js
+// @require      https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js
 // @updateURL    https://github.com/HeavenTTT/bilibili-blacklist/raw/refs/heads/main/scripts/bilibili-blacklist.user.js
 // @downloadURL  https://github.com/HeavenTTT/bilibili-blacklist/raw/refs/heads/main/scripts/bilibili-blacklist.user.js
 // ==/UserScript==
