@@ -62,8 +62,7 @@
     function BlockCard(force = false) {
         const now = Date.now();
         // 节流控制：1秒内只执行一次 force参数用于强制执行
-        if(!force)
-        {
+        if (!force) {
             if (isBlocking || now - lastBlockTime < 1000) {
                 return;
             }
@@ -101,18 +100,18 @@
                         // 检查是否在黑名单中
                         if (isBlacklisted(upName, title)) {
                             // 如果在黑名单中，则隐藏卡片
+                            if (!blockedCards.includes(card)) {
+                                blockedCards.push(card); // 将卡片添加到已屏蔽列表
+                                newblockCount++; // 增加新屏蔽计数
+                            }
                             if (!isShowAll) {
                                 card.style.display = "none"; // 隐藏卡片
-                                if (!blockedCards.includes(card)) {
-                                    blockedCards.push(card); // 将卡片添加到已屏蔽列表
-                                    newblockCount++; // 增加新屏蔽计数
-                                }
                             }
                         }
                     }
                 });
             });
-            blockCount += newblockCount;
+            blockCount = blockedCards.length;
             updateBlockCountDisplay();
         } finally {
             isBlocking = false; // 重置屏蔽状态
@@ -125,7 +124,7 @@
         }
         // 更新面板标题（如果面板已打开）
         const panel = document.getElementById('bilibili-blacklist-panel');
-        if (panel && panel.style.display !== 'none') {
+        if (panel) {
             const titleElement = panel.querySelector('h3');
             if (titleElement) {
                 titleElement.textContent = `已屏蔽视频 (${blockCount})`;
@@ -146,7 +145,7 @@
             blockedCards.forEach(card => {
                 card.style.display = "none";
             });
-            //blockCount = blockedCards.length;
+            blockCount = blockedCards.length;
         }
         btnTempUnblock.textContent = isShowAll ? '恢复屏蔽' : '取消屏蔽';
         updateBlockCountDisplay();
@@ -301,7 +300,7 @@
         li.addEventListener('click', () => {
             if (panel.style.display === 'none') {
                 panel.style.display = 'flex';
-                updateBlockCountDisplay(); // 更新屏蔽计数显示
+                //updateBlockCountDisplay(); // 更新屏蔽计数显示
             } else {
                 panel.style.display = 'none';
             }
@@ -675,7 +674,7 @@
     //可爱的卡比图标
     function getKirbySVG() {
         return `
-        <svg width="30" height="30" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"  >
+        <svg width="35" height="35" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg"  >
             <ellipse cx="70" cy="160" rx="30" ry="15" fill="#cc3333" />
             <ellipse cx="130" cy="160" rx="30" ry="15" fill="#cc3333" />
             <ellipse cx="50" cy="120" rx="20" ry="20" fill="#ffb6c1" />
@@ -779,7 +778,6 @@
         lastBlockTime = 0;
         blockedCards = [];
         processedCards = new WeakSet();
-        blockCount = 0;
         if (isMainPage()) {
             initMainPage(); // 初始化主页
             BlockAD(); // 屏蔽主页广告
