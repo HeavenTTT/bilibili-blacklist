@@ -5,13 +5,13 @@
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
-// @grant        GM_setValue 
-// @grant        GM_getValue 
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @grant        GM_addStyle
 // @icon         https://www.bilibili.com/favicon.ico
 // @require      https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js
-// @updateURL    https://github.com/HeavenTTT/bilibili-blacklist/raw/refs/heads/main/scripts/bilibili-blacklist.user.js
-// @downloadURL  https://github.com/HeavenTTT/bilibili-blacklist/raw/refs/heads/main/scripts/bilibili-blacklist.user.js
+// @downloadURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js
+// @updateURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.meta.js
 // ==/UserScript==
 
 (function () {
@@ -41,9 +41,9 @@
     //#region 核心功能 - 屏蔽视频卡片
     let isShowAll = false; // 是否显示全部视频卡片
     let blockCount = 0; // 屏蔽的视频卡片数量
-    let isBlocking = false;          // 是否正在执行屏蔽操作
-    let lastBlockTime = 0;           // 上次执行屏蔽的时间戳
-    let blockedCards = [];           // 存储已屏蔽的视频卡片元素
+    let isBlocking = false; // 是否正在执行屏蔽操作
+    let lastBlockTime = 0; // 上次执行屏蔽的时间戳
+    let blockedCards = []; // 存储已屏蔽的视频卡片元素
     let processedCards = new WeakSet(); // 记录已处理过的卡片(避免重复处理)
 
     // 视频卡片选择器
@@ -140,13 +140,13 @@
             blockedCards.forEach(card => {
                 card.style.display = "block";
             });
-            blockCount = 0;
+            //blockCount = 0;
         } else {
             // 重新隐藏之前屏蔽的卡片
             blockedCards.forEach(card => {
                 card.style.display = "none";
             });
-            blockCount = blockedCards.length;
+            //blockCount = blockedCards.length;
         }
         btnTempUnblock.textContent = isShowAll ? '恢复屏蔽' : '取消屏蔽';
         updateBlockCountDisplay();
@@ -243,7 +243,7 @@
         // 点击时添加到黑名单
         btn.addEventListener("click", (e) => {
             e.stopPropagation(); // 防止事件冒泡
-            addToExactBlacklistAndRefresh(upName);  // 使用公共函数
+            addToExactBlacklistAndRefresh(upName);// 使用公共函数
         });
 
         return btn;
@@ -484,8 +484,8 @@
         addExactBtn.addEventListener('click', () => {
             const upName = exactInput.value.trim();
             if (upName) {
-                addToExactBlacklistAndRefresh(upName);  // 使用公共函数
-                exactInput.value = '';  // 清空输入框
+                addToExactBlacklistAndRefresh(upName); // 使用公共函数
+                exactInput.value = ''; // 清空输入框
             }
         });
 
@@ -867,12 +867,12 @@
     // 屏蔽视频页面广告（使用数组优化）
     function BlockVideoPageAd() {
         const adSelectors = [
-            '.video-card-ad-small',          // 右上角推广
-            '.slide-ad-exp',                 // 大推广
-            '.video-page-game-card-small',   // 游戏推广
-            '.activity-m-v1',                // 活动推广
+            '.video-card-ad-small', // 右上角推广
+            '.slide-ad-exp', // 大推广
+            '.video-page-game-card-small', // 游戏推广
+            '.activity-m-v1', // 活动推广
             '.video-page-special-card-small', // 特殊卡片推广
-            '.ad-floor-exp'                  // 广告地板
+            '.ad-floor-exp' // 广告地板
         ];
 
         adSelectors.forEach(selector => {
