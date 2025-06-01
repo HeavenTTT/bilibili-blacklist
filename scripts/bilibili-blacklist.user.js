@@ -1,5 +1,4 @@
 // ==UserScript==
-// 元数据块定义脚本属性
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
 // @version      1.0.4
