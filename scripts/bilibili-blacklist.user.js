@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.0.5
+// @version      1.0.6
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
@@ -72,15 +72,12 @@
         lastBlockTime = now;
         try {
             const cards = querySelectorAllVideoCard();
-            //console.log("检测到视频卡片数量:", cards.length);
-            let newblockCount = 0;
             cards.forEach((card) => {
                 if (processedCards.has(card)) {
                     return; // 如果卡片已经处理过，则跳过
                 }
                 // 获取视频信息
                 GetVideoInfo(card, (upName, title) => {
-                    //console.log(`UP主名称: ${upName}, 视频标题: ${title}`);
                     if (upName && title) {
                         processedCards.add(card); // 将卡片标记为已处理
                         // 如果UP主名称和视频标题都存在
@@ -103,7 +100,6 @@
                             // 如果在黑名单中，则隐藏卡片
                             if (!blockedCards.includes(card)) {
                                 blockedCards.push(card); // 将卡片添加到已屏蔽列表
-                                newblockCount++; // 增加新屏蔽计数
                             }
                             if (!isShowAll) {
                                 card.style.display = "none"; // 隐藏卡片
@@ -149,6 +145,7 @@
             blockCount = blockedCards.length;
         }
         btnTempUnblock.textContent = isShowAll ? '恢复屏蔽' : '取消屏蔽';
+        btnTempUnblock.background = isShowAll ? '#dddddd' : '#fb7299'; // 灰色或粉色
         updateBlockCountDisplay();
     }
     const selectorUpName = [
@@ -814,7 +811,6 @@
         initObserver("i_cecream"); // 传入B站主页的主容器ID
         console.log("主页已加载🍓");
     }
-    /// ----主页结束----
     /// -----搜索页----
     function isSearchPage() {
         //页面链接 https://search.bilibili.com/all?keyword=xxx
@@ -825,7 +821,6 @@
         initObserver("i_cecream"); // 传入B站搜索页的主容器ID
         console.log("搜索页已加载🍉");
     }
-    /// --- 搜索页结束---
     /// --- 播放页 ---
     function isVideoPage() {
         // 页面链接 https://www.bilibili.com/video/BV1xxxxxx
@@ -836,8 +831,7 @@
         initObserver("app"); // 传入B站播放页的主容器ID
         console.log("播放页已加载🍇");
     }
-    /// ---- 播放页结束 ---
-    /// ---- 分类页 ----
+    // ---- 分类页 ----
     function isCategoryPage() {
         // 页面链接 https://www.bilibili.com/c/xxxxxx
         // 通过检查路径名是否以 "/c/" 开头来判断是否为分类页
@@ -847,7 +841,6 @@
         initObserver("app"); // 传入B站分类页的主容器ID
         console.log("分类页已加载🍊");
     }
-    /// --- 分类页结束 ---
     //#endregion
 
     //#region 额外功能-屏蔽广告
