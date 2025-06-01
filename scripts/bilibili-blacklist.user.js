@@ -63,10 +63,12 @@
     function BlockCard(force = false) {
         const now = Date.now();
         // 节流控制：1秒内只执行一次 force参数用于强制执行
-        if (!force && (isBlocking || now - lastBlockTime < 1000)) {
-            return;
+        if(!force)
+        {
+            if (isBlocking || now - lastBlockTime < 1000) {
+                return;
+            }
         }
-
         isBlocking = true;
         lastBlockTime = now;
         try {
@@ -705,17 +707,31 @@
     // MutationObserver 检测动态加载的新内容（仅当节点可见时才触发）
     const observer = new MutationObserver((mutations) => {
         let shouldCheck = false;
-        // 检查是否有新增的可见节点
-        mutations.forEach((mutation) => {
-            if (mutation.addedNodes.length > 0) {
-                shouldCheck = Array.from(mutation.addedNodes).some((node) => {
-                    if (node.nodeType !== Node.ELEMENT_NODE) return false;
-                    return node.offsetWidth > 0 ||
-                        node.offsetHeight > 0 ||
-                        node.querySelector("[offsetWidth], [offsetHeight]");
-                });
-            }
-        });
+        if (isVideoPage()) {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length > 0) {
+                    // 检查新增节点是否可见（有宽度或高度）
+                    shouldCheck = Array.from(mutation.addedNodes).some((node) => {
+                        // 仅检查元素节点（跳过文本节点、注释等）
+                        if (node.nodeType !== Node.ELEMENT_NODE) return false;
+
+                        // 检查元素或其子元素是否可见
+                        const hasVisibleContent =
+                            node.offsetWidth > 0 ||
+                            node.offsetHeight > 0 ||
+                            node.querySelector("[offsetWidth], [offsetHeight]");
+
+                        return hasVisibleContent;
+                    });
+                }
+            });
+        } else {
+            mutations.forEach((mutation) => {
+                if (mutation.addedNodes.length > 0) {
+                    shouldCheck = true;
+                }
+            });
+        }
 
         // 如果有可见的新内容，延迟 1 秒后执行屏蔽（确保 DOM 完全渲染）
         if (shouldCheck) {
@@ -729,15 +745,6 @@
                 if (isVideoPage()) {
                     BlockVideoPageAd(); // 屏蔽视频页面广告
                 }
-                /*
-                // 如果需要实时显示在按钮上，可以在这里更新按钮文本
-                const managerButton = document.getElementById('bilibili-blacklist-manager');
-                if (managerButton) {
-                    if (blockCountDiv) {
-                        blockCountDiv.textContent = `${blockCount}`; // 更新黑名单数量
-                    }
-
-                }*/
             }, 1000);
         }
     });
