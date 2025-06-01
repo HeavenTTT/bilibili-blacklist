@@ -299,13 +299,9 @@
 
         // 点击按钮时显示面板
         li.addEventListener('click', () => {
-            // 更新面板标题显示当前页面已屏蔽数量
-            const titleElement = panel.querySelector('h3');
-            if (titleElement) {
-                titleElement.textContent = `已屏蔽视频 (${blockCount})`;
-            }
             if (panel.style.display === 'none') {
                 panel.style.display = 'flex';
+                updateBlockCountDisplay(); // 更新屏蔽计数显示
             } else {
                 panel.style.display = 'none';
             }
