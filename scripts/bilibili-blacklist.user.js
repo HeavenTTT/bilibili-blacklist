@@ -2,7 +2,7 @@
 // 元数据块定义脚本属性
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.0.2
+// @version      1.0.4
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
@@ -28,11 +28,11 @@
     ]);
     // 默认正则匹配黑名单
     let regexBlacklist = GM_getValue("regexBlacklist", [
-        "王者荣耀.*",
-        "和平精英.*",
-        "PUBG.*",
-        "绝地求生.*",
-        "吃鸡.*",
+        "王者荣耀",
+        "和平精英",
+        "PUBG",
+        "绝地求生",
+        "吃鸡",
     ]);
     // 保存黑名单到存储
     function saveBlacklists() {
@@ -42,7 +42,11 @@
     //#region 核心功能 - 屏蔽视频卡片
     let isShowAll = false; // 是否显示全部视频卡片
     let blockCount = 0; // 屏蔽的视频卡片数量
-    //let blockedCards = []; // 存储已屏蔽的视频卡片
+    let isBlocking = false;          // 是否正在执行屏蔽操作
+    let lastBlockTime = 0;           // 上次执行屏蔽的时间戳
+    let blockedCards = [];           // 存储已屏蔽的视频卡片元素
+    let processedCards = new WeakSet(); // 记录已处理过的卡片(避免重复处理)
+
     // 视频卡片选择器
     const selectorVideoCards = [
         ".feed-card", // 旧版卡片样式
@@ -56,46 +60,96 @@
         ); // 使用flatMap将所有选择器匹配到的元素合并为一个数组
     }
 
-    function BlockCard() {
-        const cards = querySelectorAllVideoCard();
-        //console.log("检测到视频卡片数量:", cards.length);
-        cards.forEach((card) => {
-            // 获取视频信息
-            GetVideoInfo(card, (upName, title) => {
-                //console.log(`UP主名称: ${upName}, 视频标题: ${title}`);
-                if (upName && title) {
-                    // 如果UP主名称和视频标题都存在
-                    if (!card.querySelector(".bilibili-blacklist-block-btn")) {
-                        // 创建屏蔽按钮
-                        if (!isVideoPage()) {
-                            const blockButton = createBlockButton(upName);
-                            card.appendChild(blockButton); // 将按钮添加到卡片中
-                        } else {
-                            if (isInit) {
-                                const blockButton = createBlockButton(upName);
-                                card.querySelector(".card-box").style.position = "relative"; // 确保信息容器有相对定位
-                                card.querySelector(".card-box").appendChild(blockButton); // 将按钮添加到卡片信息中
-                                //card.appendChild(blockButton); // 将按钮添加到卡片中
-                            }
-                            //播放页不添加按钮
-                            //TODO:下次试试看别的方式
-                        }
-                    }
-                    // 检查是否在黑名单中
-                    if (isBlacklisted(upName, title)) {
-                        // 如果在黑名单中，则隐藏卡片
-                        if (!isShowAll) {
-                            card.style.display = "none"; // 隐藏卡片
-                            blockCount++; // 增加屏蔽计数
-                            //blockedCards.push(card); // 将卡片添加到已屏蔽列表
-                            //console.log(`已屏蔽视频: ${title} (UP主: ${upName})`);
-                        }
-                    }
-                }
-            });
-        });
-    }
+    function BlockCard(force = false) {
+        const now = Date.now();
+        // 节流控制：1秒内只执行一次 force参数用于强制执行
+        if (!force && (isBlocking || now - lastBlockTime < 1000)) {
+            return;
+        }
 
+        isBlocking = true;
+        lastBlockTime = now;
+        try {
+            const cards = querySelectorAllVideoCard();
+            //console.log("检测到视频卡片数量:", cards.length);
+            let newblockCount = 0;
+            cards.forEach((card) => {
+                if (processedCards.has(card)) {
+                    return; // 如果卡片已经处理过，则跳过
+                }
+                // 获取视频信息
+                GetVideoInfo(card, (upName, title) => {
+                    //console.log(`UP主名称: ${upName}, 视频标题: ${title}`);
+                    if (upName && title) {
+                        processedCards.add(card); // 将卡片标记为已处理
+                        // 如果UP主名称和视频标题都存在
+                        if (!card.querySelector(".bilibili-blacklist-block-btn")) {
+                            // 创建屏蔽按钮
+                            if (!isVideoPage()) {
+                                const blockButton = createBlockButton(upName);
+                                card.appendChild(blockButton); // 将按钮添加到卡片中
+                            } else {
+                                if (isInit) {
+                                    const blockButton = createBlockButton(upName);
+                                    card.querySelector(".card-box").style.position = "relative"; // 确保信息容器有相对定位
+                                    card.querySelector(".card-box").appendChild(blockButton); // 将按钮添加到卡片信息中
+                                    //card.appendChild(blockButton); // 将按钮添加到卡片中
+                                }
+                            }
+                        }
+                        // 检查是否在黑名单中
+                        if (isBlacklisted(upName, title)) {
+                            // 如果在黑名单中，则隐藏卡片
+                            if (!isShowAll) {
+                                card.style.display = "none"; // 隐藏卡片
+                                if (!blockedCards.includes(card)) {
+                                    blockedCards.push(card); // 将卡片添加到已屏蔽列表
+                                    newblockCount++; // 增加新屏蔽计数
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+            blockCount += newblockCount;
+            updateBlockCountDisplay();
+        } finally {
+            isBlocking = false; // 重置屏蔽状态
+        }
+    }
+    // 更新屏蔽计数显示
+    function updateBlockCountDisplay() {
+        if (blockCountDiv) {
+            blockCountDiv.textContent = `${blockCount}`;
+        }
+        // 更新面板标题（如果面板已打开）
+        const panel = document.getElementById('bilibili-blacklist-panel');
+        if (panel && panel.style.display !== 'none') {
+            const titleElement = panel.querySelector('h3');
+            if (titleElement) {
+                titleElement.textContent = `已屏蔽视频 (${blockCount})`;
+            }
+        }
+    }
+    // 暂时取消屏蔽/恢复屏蔽功能
+    function toggleShowAll() {
+        isShowAll = !isShowAll;
+        if (isShowAll) {
+            // 显示所有被屏蔽的卡片
+            blockedCards.forEach(card => {
+                card.style.display = "block";
+            });
+            blockCount = 0;
+        } else {
+            // 重新隐藏之前屏蔽的卡片
+            blockedCards.forEach(card => {
+                card.style.display = "none";
+            });
+            blockCount = blockedCards.length;
+        }
+        btnTempUnblock.textContent = isShowAll ? '恢复屏蔽' : '取消屏蔽';
+        updateBlockCountDisplay();
+    }
     const selectorUpName = [
         ".bili-video-card__info--author", // 主页
         ".bili-video-card__author", // 分类页面--> span title
@@ -132,30 +186,33 @@
         return flag;
     }
     function isBlacklisted(upName, title) {
-        //TODO:判断是否在黑名单中
         if (exactBlacklist.includes(upName)) {
-            //console.log(`精确匹配黑名单: ${upName}`);
             return true; // 精确匹配黑名单
         }
         if (regexBlacklist.some((regex) => new RegExp(regex).test(upName))) {
-            //console.log(`正则匹配黑名单: ${upName}`);
             return true; // 正则匹配黑名单
         }
         if (regexBlacklist.some((regex) => new RegExp(regex).test(title))) {
-            //console.log(`标题正则黑名单: ${title}`);
             return true; // 新增标题正则黑名单
         }
         return false; // 不在黑名单中
     }
-    // 添加UP主到精确黑名单
-    function addToExactBlacklist(upName) {
-        if (!exactBlacklist.includes(upName)) {
-            exactBlacklist.push(upName);
-            saveBlacklists();
-            BlockCard(); // 更新后重新执行屏蔽
+    /// 添加UP主到精确黑名单并刷新页面
+    function addToExactBlacklistAndRefresh(upName) {
+        try {
+            if (!upName) return;
+            if (!exactBlacklist.includes(upName)) {
+                exactBlacklist.push(upName);
+                saveBlacklists();
+                updateExactList();
+                BlockCard(true);
+            }
+        } catch (e) {
+            console.error("添加黑名单出错:", e);
         }
     }
     //#endregion
+
     //#region 页面修改
     //创建屏蔽按钮（悬停在视频卡片上时显示）
     function createBlockButton(upName) {
@@ -185,7 +242,7 @@
         // 点击时添加到黑名单
         btn.addEventListener("click", (e) => {
             e.stopPropagation(); // 防止事件冒泡
-            addToExactBlacklist(upName);
+            addToExactBlacklistAndRefresh(upName);  // 使用公共函数
         });
 
         return btn;
@@ -196,7 +253,6 @@
         if (isVideoPage()) {
             return;
         }
-        //console.log("添加黑名单管理按钮");
         const rightEntry = document.querySelector('.right-entry');
         if (!rightEntry || rightEntry.querySelector('#bilibili-blacklist-manager')) {
             return;
@@ -256,6 +312,53 @@
         });
     }
     // 创建黑名单管理面板
+    let btnTempUnblock = null; // 暂时取消屏蔽按钮
+    let exactList; // 精确匹配列表
+    function updateExactList() {
+        if (!exactList) return; // 安全检查
+
+        exactList.innerHTML = '';
+        exactBlacklist.forEach((upName, index) => {
+            const item = document.createElement('li');
+            item.style.display = 'flex';
+            item.style.justifyContent = 'space-between';
+            item.style.alignItems = 'center';
+            item.style.padding = '8px 0';
+            item.style.borderBottom = '1px solid #f1f2f3';
+
+            const name = document.createElement('span');
+            name.textContent = upName;
+            name.style.flex = '1';
+
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = '移除';
+            removeBtn.style.padding = '4px 8px';
+            removeBtn.style.background = '#f56c6c'; // 红色
+            removeBtn.style.color = '#fff';
+            removeBtn.style.border = 'none';
+            removeBtn.style.borderRadius = '4px';
+            removeBtn.style.cursor = 'pointer';
+            removeBtn.addEventListener('click', () => {
+                exactBlacklist.splice(index, 1);
+                saveBlacklists();
+                updateExactList();
+                BlockCard(true); // 更新后重新执行屏蔽
+            });
+
+            item.appendChild(name);
+            item.appendChild(removeBtn);
+            exactList.appendChild(item);
+        });
+
+        if (exactBlacklist.length === 0) {
+            const empty = document.createElement('div');
+            empty.textContent = '暂无精确匹配屏蔽UP主';
+            empty.style.textAlign = 'center';
+            empty.style.padding = '16px';
+            empty.style.color = '#999';
+            exactList.appendChild(empty);
+        }
+    }
     function createBlacklistPanel() {
         // 创建主面板容器
         const panel = document.createElement('div');
@@ -290,7 +393,7 @@
 
         // 正则匹配选项卡
         const regexTab = document.createElement('div');
-        regexTab.textContent = '正则匹配';
+        regexTab.textContent = '正则匹配(Up/标题)';
         regexTab.style.padding = '12px 16px';
         regexTab.style.cursor = 'pointer';
 
@@ -310,37 +413,18 @@
         title.style.margin = '0';
         title.style.fontSize = '16px';
         title.style.fontWeight = '500';
-        /*
-        // 暂时取消屏蔽
-        const tempUnblockBtn = document.createElement('button');
-        tempUnblockBtn.textContent = '暂时取消屏蔽';
-        tempUnblockBtn.style.padding = '8px 16px';
-        tempUnblockBtn.style.border = 'none';
-        tempUnblockBtn.style.borderRadius = '4px';
-        tempUnblockBtn.style.backgroundColor = '#fb7299'; // B站粉色
-        tempUnblockBtn.style.color = '#fff';
-        tempUnblockBtn.style.cursor = 'pointer';
-        tempUnblockBtn.style.marginRight = '8px';
-        tempUnblockBtn.addEventListener('click', () => {
-            // 暂时取消屏蔽的逻辑
-            console.log('暂时取消屏蔽');
-            if (isShowAll) {
-                // 如果已经显示全部，则恢复原来的屏蔽状态
-                BlockCard(); // 重新执行屏蔽
-                isShowAll = false; // 恢复为不显示全部
-                tempUnblockBtn.textContent = '暂时取消屏蔽'; // 更新按钮文本
-            } else {
-                // 如果当前是屏蔽状态，则显示全部
-                const cards = querySelectorAllVideoCard();
-                cards.forEach((card) => {
-                    card.style.display = 'block'; // 显示所有卡片
-                });
-                isShowAll = true; // 设置为显示全部状态
-                tempUnblockBtn.textContent = '恢复屏蔽'; // 更新按钮文本
 
-            }
-        })
-        */
+        // 暂时取消屏蔽
+        btnTempUnblock = document.createElement('button');
+        btnTempUnblock.textContent = isShowAll ? '恢复屏蔽' : '取消屏蔽';
+        btnTempUnblock.style.padding = '8px 16px';
+        btnTempUnblock.style.border = 'none';
+        btnTempUnblock.style.borderRadius = '4px';
+        btnTempUnblock.style.backgroundColor = '#fb7299';
+        btnTempUnblock.style.color = '#fff';
+        btnTempUnblock.style.cursor = 'pointer';
+        btnTempUnblock.style.marginRight = '8px';
+        btnTempUnblock.addEventListener('click', toggleShowAll);
         // 关闭按钮
         const closeBtn = document.createElement('button');
         closeBtn.textContent = '×';
@@ -355,9 +439,8 @@
 
 
         header.appendChild(title);
-        //header.appendChild(tempUnblockBtn);
+        header.appendChild(btnTempUnblock);
         header.appendChild(closeBtn);
-
         // 内容区域
         const contentContainer = document.createElement('div');
         contentContainer.style.display = 'flex';
@@ -403,12 +486,9 @@
         addExactBtn.style.cursor = 'pointer';
         addExactBtn.addEventListener('click', () => {
             const upName = exactInput.value.trim();
-            if (upName && !exactBlacklist.includes(upName)) {
-                exactBlacklist.push(upName);
-                saveBlacklists();
-                exactInput.value = '';
-                updateExactList();
-                BlockCard(); // 更新后重新执行屏蔽
+            if (upName) {
+                addToExactBlacklistAndRefresh(upName);  // 使用公共函数
+                exactInput.value = '';  // 清空输入框
             }
         });
 
@@ -447,7 +527,7 @@
                     saveBlacklists();
                     regexInput.value = '';
                     updateRegexList();
-                    BlockCard(); // 更新后重新执行屏蔽
+                    BlockCard(true); // 更新后重新执行屏蔽
                 } catch (e) {
                     alert('无效的正则表达式: ' + e.message);
                 }
@@ -459,7 +539,7 @@
         regexContent.appendChild(addRegexContainer);
 
         // 精确匹配列表
-        const exactList = document.createElement('ul');
+        exactList = document.createElement('ul');
         exactList.style.listStyle = 'none';
         exactList.style.padding = '0';
         exactList.style.margin = '0';
@@ -469,52 +549,6 @@
         regexList.style.listStyle = 'none';
         regexList.style.padding = '0';
         regexList.style.margin = '0';
-
-        // 更新精确匹配列表显示
-        function updateExactList() {
-            exactList.innerHTML = '';
-            exactBlacklist.forEach((upName, index) => {
-                const item = document.createElement('li');
-                item.style.display = 'flex';
-                item.style.justifyContent = 'space-between';
-                item.style.alignItems = 'center';
-                item.style.padding = '8px 0';
-                item.style.borderBottom = '1px solid #f1f2f3';
-
-                const name = document.createElement('span');
-                name.textContent = upName;
-                name.style.flex = '1';
-
-                const removeBtn = document.createElement('button');
-                removeBtn.textContent = '移除';
-                removeBtn.style.padding = '4px 8px';
-                removeBtn.style.background = '#f56c6c'; // 红色
-                removeBtn.style.color = '#fff';
-                removeBtn.style.border = 'none';
-                removeBtn.style.borderRadius = '4px';
-                removeBtn.style.cursor = 'pointer';
-                removeBtn.addEventListener('click', () => {
-                    exactBlacklist.splice(index, 1);
-                    saveBlacklists();
-                    updateExactList();
-                    BlockCard(); // 更新后重新执行屏蔽
-                });
-
-                item.appendChild(name);
-                item.appendChild(removeBtn);
-                exactList.appendChild(item);
-            });
-
-            // 如果没有项目则显示空状态
-            if (exactBlacklist.length === 0) {
-                const empty = document.createElement('div');
-                empty.textContent = '暂无精确匹配屏蔽UP主';
-                empty.style.textAlign = 'center';
-                empty.style.padding = '16px';
-                empty.style.color = '#999';
-                exactList.appendChild(empty);
-            }
-        }
 
         // 更新正则匹配列表显示
         function updateRegexList() {
@@ -544,7 +578,7 @@
                     regexBlacklist.splice(index, 1);
                     saveBlacklists();
                     updateRegexList();
-                    BlockCard(); // 更新后重新执行屏蔽
+                    BlockCard(true); // 更新后重新执行屏蔽
                 });
 
                 item.appendChild(regexText);
@@ -671,34 +705,21 @@
     // MutationObserver 检测动态加载的新内容（仅当节点可见时才触发）
     const observer = new MutationObserver((mutations) => {
         let shouldCheck = false;
-        if (isVideoPage()) {
-            mutations.forEach((mutation) => {
-                if (mutation.addedNodes.length > 0) {
-                    // 检查新增节点是否可见（有宽度或高度）
-                    shouldCheck = Array.from(mutation.addedNodes).some((node) => {
-                        // 仅检查元素节点（跳过文本节点、注释等）
-                        if (node.nodeType !== Node.ELEMENT_NODE) return false;
-
-                        // 检查元素或其子元素是否可见
-                        const hasVisibleContent =
-                            node.offsetWidth > 0 ||
-                            node.offsetHeight > 0 ||
-                            node.querySelector("[offsetWidth], [offsetHeight]");
-
-                        return hasVisibleContent;
-                    });
-                }
-            });
-        } else {
-            mutations.forEach((mutation) => {
-                if (mutation.addedNodes.length > 0) {
-                    shouldCheck = true;
-                }
-            });
-        }
+        // 检查是否有新增的可见节点
+        mutations.forEach((mutation) => {
+            if (mutation.addedNodes.length > 0) {
+                shouldCheck = Array.from(mutation.addedNodes).some((node) => {
+                    if (node.nodeType !== Node.ELEMENT_NODE) return false;
+                    return node.offsetWidth > 0 ||
+                        node.offsetHeight > 0 ||
+                        node.querySelector("[offsetWidth], [offsetHeight]");
+                });
+            }
+        });
 
         // 如果有可见的新内容，延迟 1 秒后执行屏蔽（确保 DOM 完全渲染）
         if (shouldCheck) {
+            processedCards = new WeakSet(); // 重置已处理卡片集合
             setTimeout(() => {
                 BlockCard();
                 addBlacklistManagerButton(); // 确保每次都添加黑名单管理按钮
@@ -708,18 +729,15 @@
                 if (isVideoPage()) {
                     BlockVideoPageAd(); // 屏蔽视频页面广告
                 }
+                /*
                 // 如果需要实时显示在按钮上，可以在这里更新按钮文本
                 const managerButton = document.getElementById('bilibili-blacklist-manager');
                 if (managerButton) {
-                    //const textDiv = managerButton.querySelector('.right-entry-text > div:last-child');
-                    // if (textDiv) {
-                    //    textDiv.textContent = `${blockCount}`;
-                    //}
                     if (blockCountDiv) {
                         blockCountDiv.textContent = `${blockCount}`; // 更新黑名单数量
                     }
-                    
-                }
+
+                }*/
             }, 1000);
         }
     });
@@ -754,6 +772,12 @@
 
     let isInit = false; // 是否已经初始化
     function init() {
+        // 重置状态
+        isBlocking = false;
+        lastBlockTime = 0;
+        blockedCards = [];
+        processedCards = new WeakSet();
+        blockCount = 0;
         if (isMainPage()) {
             initMainPage(); // 初始化主页
             BlockAD(); // 屏蔽主页广告
