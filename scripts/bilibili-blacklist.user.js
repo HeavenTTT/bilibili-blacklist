@@ -45,18 +45,11 @@
     let lastBlockTime = 0; // 上次执行屏蔽的时间戳
     let blockedCards = new Set(); // 存储已屏蔽的视频卡片元素
     let processedCards = new WeakSet(); // 记录已处理过的卡片(避免重复处理)
-
-    // 视频卡片选择器
-    const selectorVideoCards = [
-        ".feed-card", // 旧版卡片样式
-        //".bili-video-card", // 新版卡片样式
-        ".video-page-card-small", // 播放页小卡片
-    ];
     /// 查找所有视频卡片
-    function querySelectorAllVideoCard() {
-        return selectorVideoCards.flatMap((selector) =>
-            Array.from(document.querySelectorAll(selector))
-        ); // 使用flatMap将所有选择器匹配到的元素合并为一个数组
+    function querySelectorAllVideoCard(selector) {
+        //return selectorVideoCards.flatMap((selector) =>
+        return document.querySelectorAll(selector);
+        //); // 使用flatMap将所有选择器匹配到的元素合并为一个数组
     }
 
     function BlockCard(force = false) {
@@ -70,7 +63,18 @@
         isBlocking = true;
         lastBlockTime = now;
         try {
-            const cards = querySelectorAllVideoCard();
+            let cards = null;
+            if (isMainPage()) {
+                cards = Array.from(querySelectorAllVideoCard(".bili-video-card"))
+                    .concat(Array.from(querySelectorAllVideoCard(".feed-card"))); // 
+            }
+            else if (isVideoPage())
+                cards = querySelectorAllVideoCard(".video-page-card-small");
+            else if (isCategoryPage())
+                cards = querySelectorAllVideoCard(".feed-card");
+            else if (isSearchPage())
+                cards = querySelectorAllVideoCard(".bili-video-card");
+            else return; // 如果不是视频页面，则不执行屏蔽操作
             //console.log(`检测到 ${cards.length} 个视频卡片`);
             cards.forEach((card) => {
                 if (processedCards.has(card)) {
@@ -108,11 +112,16 @@
                     // 检查是否在黑名单中
                     if (isBlacklisted(upName, title)) {
                         // 如果在黑名单中，则隐藏卡片
+                        if (isSearchPage()) { // 如果是搜索页面 -> 隐藏父元素
+                            card = card.parentElement; // 获取父元素
+                        }
                         if (!blockedCards.has(card)) {
                             blockedCards.add(card); // 将卡片添加到已屏蔽列表
                         }
                         if (!isShowAll) {
                             card.style.display = "none"; // 隐藏卡片
+
+
                         }
                     }
                 } else {
@@ -132,7 +141,7 @@
         }
         // 更新面板标题（如果面板已打开）
         const panel = document.getElementById('bilibili-blacklist-panel');
-        if (panel) {
+        if (panel && blockTitle) {
             blockTitle.textContent = `已屏蔽视频 (${blockedCards.size})`; // 更新面板标题
         }
     }
@@ -177,14 +186,20 @@
         return { upName, title };
     }
     function isBlacklisted(upName, title) {
-        if (exactBlacklist.includes(upName)) {
-            return true; // 精确匹配黑名单
+        // 精确匹配黑名单（无视大小写）
+        // 将 upName 转换为小写，然后与黑名单中的每个项的小写进行比较
+        const lowerCaseUpName = upName.toLowerCase();
+        if (exactBlacklist.some(item => item.toLowerCase() === lowerCaseUpName)) {
+            return true;
         }
-        if (regexBlacklist.some((regex) => new RegExp(regex).test(upName))) {
-            return true; // 正则匹配黑名单
+
+        // 正则匹配黑名单（无视大小写）
+        // 为正则表达式添加 'i' 标志，表示忽略大小写
+        if (regexBlacklist.some((regex) => new RegExp(regex, 'i').test(upName))) {
+            return true;
         }
-        if (regexBlacklist.some((regex) => new RegExp(regex).test(title))) {
-            return true; // 新增标题正则黑名单
+        if (regexBlacklist.some((regex) => new RegExp(regex, 'i').test(title))) {
+            return true;
         }
         return false; // 不在黑名单中
     }
@@ -347,7 +362,7 @@
             exactList.appendChild(empty);
         }
     }
-    
+
     function createBlacklistPanel() {
         // 创建主面板容器
         const panel = document.createElement('div');
