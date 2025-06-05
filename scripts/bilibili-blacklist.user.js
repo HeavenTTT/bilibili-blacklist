@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.0.8
+// @version      1.0.9
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
@@ -71,7 +71,7 @@
         lastBlockTime = now;
         try {
             const cards = querySelectorAllVideoCard();
-            console.log(`检测到 ${cards.length} 个视频卡片`);
+            //console.log(`检测到 ${cards.length} 个视频卡片`);
             cards.forEach((card) => {
                 if (processedCards.has(card)) {
                     return; // 如果卡片已经处理过，则跳过
@@ -116,7 +116,7 @@
                         }
                     }
                 } else {
-                    console.warn("未找到UP主名称或视频标题，跳过屏蔽:", card);
+                    //console.warn("未找到UP主名称或视频标题，跳过屏蔽:", card);
                 }
             });
 
@@ -133,10 +133,7 @@
         // 更新面板标题（如果面板已打开）
         const panel = document.getElementById('bilibili-blacklist-panel');
         if (panel) {
-            const titleElement = panel.querySelector('h3');
-            if (titleElement) {
-                titleElement.textContent = `已屏蔽视频 (${blockedCards.size})`;
-            }
+            blockTitle.textContent = `已屏蔽视频 (${blockedCards.size})`; // 更新面板标题
         }
     }
     // 暂时取消屏蔽/恢复屏蔽功能
@@ -304,6 +301,7 @@
     // 创建黑名单管理面板
     let btnTempUnblock = null; // 暂时取消屏蔽按钮
     let exactList; // 精确匹配列表
+    let blockTitle;
     function updateExactList() {
         if (!exactList) return; // 安全检查
 
@@ -349,6 +347,7 @@
             exactList.appendChild(empty);
         }
     }
+    
     function createBlacklistPanel() {
         // 创建主面板容器
         const panel = document.createElement('div');
@@ -398,11 +397,10 @@
         header.style.justifyContent = 'space-between';
         header.style.alignItems = 'center';
 
-        const title = document.createElement('h3');
-        title.textContent = '已屏蔽UP主';
-        title.style.margin = '0';
-        title.style.fontSize = '16px';
-        title.style.fontWeight = '500';
+        blockTitle = document.createElement('h3');
+        blockTitle.style.margin = '0';
+        blockTitle.style.fontSize = '16px';
+        blockTitle.style.fontWeight = '500';
 
         // 暂时取消屏蔽
         btnTempUnblock = document.createElement('button');
@@ -428,7 +426,7 @@
         });
 
 
-        header.appendChild(title);
+        header.appendChild(blockTitle);
         header.appendChild(btnTempUnblock);
         header.appendChild(closeBtn);
         // 内容区域
