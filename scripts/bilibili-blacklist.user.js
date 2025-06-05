@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.0.9
+// @version      1.0.10
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
