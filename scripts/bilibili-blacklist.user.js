@@ -41,10 +41,9 @@
     }
     //#region 核心功能 - 屏蔽视频卡片
     let isShowAll = false; // 是否显示全部视频卡片
-    let blockCount = 0; // 屏蔽的视频卡片数量
     let isBlocking = false; // 是否正在执行屏蔽操作
     let lastBlockTime = 0; // 上次执行屏蔽的时间戳
-    let blockedCards = []; // 存储已屏蔽的视频卡片元素
+    let blockedCards = new Set(); // 存储已屏蔽的视频卡片元素
     let processedCards = new WeakSet(); // 记录已处理过的卡片(避免重复处理)
 
     // 视频卡片选择器
@@ -72,12 +71,14 @@
         lastBlockTime = now;
         try {
             const cards = querySelectorAllVideoCard();
+            console.log(`检测到 ${cards.length} 个视频卡片`);
             cards.forEach((card) => {
                 if (processedCards.has(card)) {
                     return; // 如果卡片已经处理过，则跳过
                 }
                 // 获取视频信息
                 GetVideoInfo(card, (upName, title) => {
+                    console.log(`回调 ： UP主: ${upName}, 标题: ${title}`);
                     if (upName && title) {
                         if(processedCards.has(card)) {
                             return; // 如果卡片已经处理过，则跳过
@@ -101,8 +102,8 @@
                         // 检查是否在黑名单中
                         if (isBlacklisted(upName, title)) {
                             // 如果在黑名单中，则隐藏卡片
-                            if (!blockedCards.includes(card)) {
-                                blockedCards.push(card); // 将卡片添加到已屏蔽列表
+                            if (!blockedCards.has(card)) {
+                                blockedCards.add(card); // 将卡片添加到已屏蔽列表
                             }
                             if (!isShowAll) {
                                 card.style.display = "none"; // 隐藏卡片
@@ -111,7 +112,7 @@
                     }
                 });
             });
-            blockCount = blockedCards.length;
+            
             updateBlockCountDisplay();
         } finally {
             isBlocking = false; // 重置屏蔽状态
@@ -120,14 +121,14 @@
     // 更新屏蔽计数显示
     function updateBlockCountDisplay() {
         if (blockCountDiv) {
-            blockCountDiv.textContent = `${blockCount}`;
+            blockCountDiv.textContent = `${blockedCards.size}`; // 更新右侧导航栏的屏蔽计数
         }
         // 更新面板标题（如果面板已打开）
         const panel = document.getElementById('bilibili-blacklist-panel');
         if (panel) {
             const titleElement = panel.querySelector('h3');
             if (titleElement) {
-                titleElement.textContent = `已屏蔽视频 (${blockCount/2})`;
+                titleElement.textContent = `已屏蔽视频 (${blockedCards.size})`;
             }
         }
     }
@@ -767,7 +768,7 @@
         // 重置状态
         isBlocking = false;
         lastBlockTime = 0;
-        blockedCards = [];
+        blockedCards = new Set(); // 使用 Set 存储已屏蔽的卡片
         processedCards = new WeakSet();
         if (isMainPage()) {
             initMainPage(); // 初始化主页
@@ -782,8 +783,11 @@
         } else {
             //console.log("🥚");
         }
-        BlockCard(); // 初始化时立即执行屏蔽
-        addBlacklistManagerButton(); // 添加黑名单管理按钮
+        if(!isVideoPage()) {
+
+            BlockCard(); // 初始化时立即执行屏蔽
+            addBlacklistManagerButton(); // 添加黑名单管理按钮
+        }
         isInit = true; // 标记为已初始化
         console.log("BiliBili黑名单脚本已加载🥔");
     }
