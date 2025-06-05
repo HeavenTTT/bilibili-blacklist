@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.0.6
+// @version      1.0.7
 // @author       HeavenTTT
 // @description  屏蔽指定UP主的视频推荐，支持精确匹配和正则表达式匹配
 // @match        *://*.bilibili.com/*
@@ -79,6 +79,9 @@
                 // 获取视频信息
                 GetVideoInfo(card, (upName, title) => {
                     if (upName && title) {
+                        if(processedCards.has(card)) {
+                            return; // 如果卡片已经处理过，则跳过
+                        }
                         processedCards.add(card); // 将卡片标记为已处理
                         // 如果UP主名称和视频标题都存在
                         if (!card.querySelector(".bilibili-blacklist-block-btn")) {
@@ -124,29 +127,19 @@
         if (panel) {
             const titleElement = panel.querySelector('h3');
             if (titleElement) {
-                titleElement.textContent = `已屏蔽视频 (${blockCount})`;
+                titleElement.textContent = `已屏蔽视频 (${blockCount/2})`;
             }
         }
     }
     // 暂时取消屏蔽/恢复屏蔽功能
     function toggleShowAll() {
         isShowAll = !isShowAll;
-        if (isShowAll) {
-            // 显示所有被屏蔽的卡片
-            blockedCards.forEach(card => {
-                card.style.display = "block";
-            });
-            //blockCount = 0;
-        } else {
-            // 重新隐藏之前屏蔽的卡片
-            blockedCards.forEach(card => {
-                card.style.display = "none";
-            });
-            blockCount = blockedCards.length;
-        }
+        blockedCards.forEach(card => {
+            card.style.display = isShowAll ? "block" : "none";
+        });
         btnTempUnblock.textContent = isShowAll ? '恢复屏蔽' : '取消屏蔽';
-        btnTempUnblock.background = isShowAll ? '#dddddd' : '#fb7299'; // 灰色或粉色
-        updateBlockCountDisplay();
+        btnTempUnblock.style.background = isShowAll ? '#dddddd' : '#fb7299';
+        // 不需要更新blockCount，因为总数没有变化
     }
     const selectorUpName = [
         ".bili-video-card__info--author", // 主页
