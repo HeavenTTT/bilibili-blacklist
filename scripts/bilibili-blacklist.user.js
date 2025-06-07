@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.1
+// @version      1.1.2
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -75,10 +75,9 @@
   let lastBlockTime = 0; // 上次执行屏蔽的时间戳
   let blockedCards = new Set(); // 存储已屏蔽的视频卡片元素
   let processedCards = new WeakSet(); // 记录已处理过的卡片(避免重复处理)
-  const blacklistblockContainerClass = ".bilibili-blacklist-block-container"; // 屏蔽按钮容器的类名
   //给卡片添加屏蔽按钮
   function cardAddBlockcContainer(upName, card) {
-    if (!card.querySelector(blacklistblockContainerClass)) {
+    if (!card.querySelector("bilibili-blacklist-block-container")) {
       const container = document.createElement("div");
       container.classList.add("bilibili-blacklist-block-container");
       if (!card.querySelector(".bilibili-blacklist-block-btn")) {
@@ -150,7 +149,7 @@
       } else return; // 如果不是视频页面，则不执行屏蔽操作
       //console.log(`检测到 ${cards.length} 个视频卡片`);
       cards.forEach((card) => {
-        addButtontTNameQueue(card); // 添加按钮获取视频分类
+        addButtontTNameQueue(card);
         if (processedCards.has(card)) {
           return; // 如果卡片已经处理过，则跳过
         }
@@ -159,8 +158,8 @@
         if (upName && title) {
           processedCards.add(card); // 将卡片标记为已处理
           cardAddBlockcContainer(upName, card); // 添加屏蔽按钮
+         
           // 检查是否在黑名单中
-
           if (isBlacklisted(upName, title) && globalConfig.flagInfo) {
             // 如果在黑名单中，则隐藏卡片
             hideCard(card);
@@ -352,7 +351,7 @@
 
   async function getBilibiliVideoAPI(bvid) {
     if (bvid.length >= 24) {
-      return "";
+      return null;
     }
     const url = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
     try {
@@ -364,7 +363,7 @@
         return json.data;
       } else {
         //console.error("获取视频信息失败:", bvid);
-        return "";
+        return null;
       }
     } catch (error) {
       console.error("请求失败:", error);
@@ -386,6 +385,7 @@
     return false;
   }
   // 队列处理函数
+  let cardSequenceGetJsonDone = new Set(); // 存储卡片队列
   async function processCardTNameQueue() {
     if (isProcessingCardQueue) return;
     isProcessingCardQueue = true;
@@ -400,69 +400,76 @@
 
       const iterator = cardSequenceGetJson.values();
       const card = iterator.next().value;
-      cardSequenceGetJson.delete(card); // 移除
-
-      const bv = getCardBv(card);
-      if (bv) {
-        // 如果 card 已经处理过 tname group，跳过
-        if (card.querySelector(".bilibili-blacklist-tname-group")) {
-          //console.log(`BV: ${bv} 已处理过，跳过`);
-          continue;
-        }
-
-        const data = await getBilibiliVideoAPI(bv);
-        if (data) {
-          const container = card.querySelector(blacklistblockContainerClass);
-          if (!container) {
-            //console.log(`BV: ${bv} 未找到容器，跳过`);
-            continue;
-          }
-
-          // 创建 tname group
-          const tnameGroup = document.createElement("div");
-          tnameGroup.className = "bilibili-blacklist-tname-group";
-
-          let hasTname = false;
-          // 添加一级 tname
-          if (data.tname) {
-            //console.log(`处理 BV: ${bv} - 分类: ${data.tname}`);
-            const btn = createTNameBlockButton(data.tname, card);
-            tnameGroup.appendChild(btn);
-            hasTname = true;
-          }
-
-          // 添加二级 tname_v2
-          if (data.tname_v2) {
-            //console.log(`处理 BV: ${bv} - 分类2: ${data.tname_v2}`);
-            const tnameElement = createTNameBlockButton(data.tname_v2, card);
-            tnameGroup.appendChild(tnameElement);
-            hasTname = true;
-          }
-
-          // 只有有 tname 才 append group，避免插入空容器
-          if (hasTname) {
-            container.appendChild(tnameGroup);
-          }
-        }
-
-        // 等待一小段时间，防止请求过快
-        const sleeptime = globalConfig.processQueueInterval
-          ? globalConfig.processQueueInterval
-          : 100;
-        await sleep(sleeptime);
-      } else {
-        console.warn("未找到 BV 号，跳过");
+      cardSequenceGetJson.delete(card);
+      if (!card) continue;
+      if (cardSequenceGetJsonDone.has(card)) {
+        console.log("卡片已处理过" + card.textContent); 
+        continue;
       }
-    }
+      const bv = getCardBv(card);
+      if (!bv) continue;
+      const container = card.querySelector(".bilibili-blacklist-block-container");
+      if (!container) {
+   
+        console.log("未找到容器" + card.textContent);
+        continue;
+      }
+      cardSequenceGetJsonDone.add(card);
+      const data = await getBilibiliVideoAPI(bv);
+      if (!data) {
+        console.log("未找到数据" + card.textContent);
+        cardSequenceGetJsonDone.remove(card);
+        continue;
+      }
+      // 如果 card 已经处理过 tname group，跳过
 
+      // 最终确认
+      if (!card.querySelector(".bilibili-blacklist-tname-group")) {
+        // 创建 tname group
+        const tnameGroup = document.createElement("div");
+        tnameGroup.className = "bilibili-blacklist-tname-group";
+
+        let hasTname = false;
+        // 添加一级 tname
+        if (data.tname) {
+          //console.log(`处理 BV: ${bv} - 分类: ${data.tname}`);
+          const btn = createTNameBlockButton(data.tname, card);
+          tnameGroup.appendChild(btn);
+          hasTname = true;
+        }
+
+        // 添加二级 tname_v2
+        if (data.tname_v2) {
+          //console.log(`处理 BV: ${bv} - 分类2: ${data.tname_v2}`);
+          const tnameElement = createTNameBlockButton(data.tname_v2, card);
+          tnameGroup.appendChild(tnameElement);
+          hasTname = true;
+        }
+        // 只有有 tname 才 append group，避免插入空容器
+        if (hasTname) {
+          container.appendChild(tnameGroup);
+        }
+      }
+
+      await sleep(globalConfig.processQueueInterval || 100);
+    }
     isProcessingCardQueue = false;
   }
   function addButtontTNameQueue(card) {
     if (!globalConfig.flagTName) return;
     const bv = getCardBv(card);
-    if (bv) {
-      cardSequenceGetJson.add(card);
-      processCardTNameQueue(); // 触发处理队列
+    if (!bv) return;
+    // 检查是否已在处理中或已有标签组
+    if (card.querySelector(".bilibili-blacklist-tname-group")) {
+      return;
+    }
+    // 检查是否已在队列中
+    if (cardSequenceGetJson.has(card)) {
+      return;
+    }
+    cardSequenceGetJson.add(card);
+    if (!isProcessingCardQueue) {
+      processCardTNameQueue();
     }
   }
   //
@@ -1290,6 +1297,7 @@
     lastBlockTime = 0;
     blockedCards = new Set(); // 使用 Set 存储已屏蔽的卡片
     processedCards = new WeakSet();
+    cardSequenceGetJson = new Set();
     if (isMainPage()) {
       initMainPage(); // 初始化主页
       BlockMainAD(); // 屏蔽主页广告
@@ -1388,22 +1396,23 @@
 
   function addBlockButtonToUserSpace(upNameElement) {
     const upName = upNameElement.textContent.trim();
-    console.log(`当前用户昵称: ${upName}`);
-
-    // Prevent adding multiple buttons
-    if (upNameElement.querySelector(".bilibili-blacklist-block-btn")) {
+    //console.log(`当前用户昵称: ${upName}`);
+    if (upNameElement.querySelector(".bilibili-blacklist-up-block-btn")) {
       return;
     }
+    // 设置 inline-flex，让文字和按钮一行显示
+    upNameElement.style.display = "inline-flex";
+    upNameElement.style.alignItems = "center";
 
     const button = document.createElement("button");
-    button.className = "bilibili-blacklist-block-btn";
+    button.className = "bilibili-blacklist-up-block-btn";
+    button.textContent = "屏蔽";
+    button.style.color = "#fff";
+    button.style.width = "100px";
+    button.style.height = "30px";
     button.style.marginLeft = "10px";
     button.style.borderRadius = "5px";
-    //button.style.padding = "5px 10px";
-    button.style.cursor = "pointer";
-    button.style.backgroundColor = "#fb7299";
-    button.style.color = "#fff";
-    button.textContent = "屏蔽";
+    button.style.border = "1px solid #fb7299";
 
     const updateButtonState = () => {
       const blocked = isBlacklisted(upName);
