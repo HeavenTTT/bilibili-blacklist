@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.0
+// @version      1.1.1
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -43,11 +43,32 @@
     "绝地求生",
     "吃鸡",
   ]);
+  // 标签屏蔽黑名单
+  let tNameBlacklist = GM_getValue("tNameBlacklist", ["手机游戏"]);
+  // let globalConfig = {
+  //   flagInfo: true,
+  //   flagAD: true,
+  //    flagTName : true,
+  //    flagCM: true,
+  //   processQueueInterval: 500, // 单位 ms
+  // };
+  let globalConfig = GM_getValue("globalConfig", {
+    flagInfo: true,
+    flagAD: true,
+    flagTName: true,
+    flagCM: true,
+    processQueueInterval: 500, // 单位 ms
+  });
   // 保存黑名单到存储
   function saveBlacklists() {
     GM_setValue("exactBlacklist", exactBlacklist);
     GM_setValue("regexBlacklist", regexBlacklist);
+    GM_setValue("tNameBlacklist", tNameBlacklist);
   }
+  function saveGlobalConfig() {
+    GM_setValue("globalConfig", globalConfig);
+  }
+
   //#region 核心功能 - 屏蔽视频卡片
   let isShowAll = false; // 是否显示全部视频卡片
   let isBlocking = false; // 是否正在执行屏蔽操作
@@ -139,8 +160,12 @@
           processedCards.add(card); // 将卡片标记为已处理
           cardAddBlockcContainer(upName, card); // 添加屏蔽按钮
           // 检查是否在黑名单中
-          if (isBlacklisted(upName, title)) {
+
+          if (isBlacklisted(upName, title) && globalConfig.flagInfo) {
             // 如果在黑名单中，则隐藏卡片
+            hideCard(card);
+          }
+          if (isCardBlacklistTName(card) && globalConfig.flagTName) {
             hideCard(card);
           }
         } else {
@@ -279,7 +304,24 @@
       BlockCard();
     }
   }
+  function addToTNameBlachlist(tname, cardElement = null) {
+    try {
+      if (!tname) return;
+      if (!tNameBlacklist.includes(tname)) {
+        tNameBlacklist.push(tname);
+        saveBlacklists();
+        updateTNameList();
+        if (cardElement) {
+          hideCard(cardElement); // 隐藏当前卡片
+        }
+      }
+    } catch (e) {
+      console.error("添加黑名单出错:", e);
+    }
+  }
+
   //#endregion
+
   //#region Bv号以及视频信息
   let cardSequenceGetJson = new Set(); // 存储卡片队列
   let isProcessingCardQueue = false; // 是否正在处理队列
@@ -295,7 +337,7 @@
         return null;
       } else {
         //判断链接是不是cm.bilili
-        if (link.match(/cm.bilibili.com/)) {
+        if (link.match(/cm.bilibili.com/) && globalConfig.flagCM) {
           hideCard(card);
           //console.log("软广链接，已屏蔽");
           return null;
@@ -328,7 +370,21 @@
       console.error("请求失败:", error);
     }
   }
-
+  function isCardBlacklistTName(card) {
+    const tnameGroup = card.querySelector(".bilibili-blacklist-tname-group");
+    if (tnameGroup) {
+      const tnameElements = tnameGroup.querySelectorAll(
+        ".bilibili-blacklist-tname"
+      );
+      for (const tnameElement of tnameElements) {
+        const tname = tnameElement.textContent.trim();
+        if (tNameBlacklist.includes(tname)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
   // 队列处理函数
   async function processCardTNameQueue() {
     if (isProcessingCardQueue) return;
@@ -337,7 +393,7 @@
     while (cardSequenceGetJson.size > 0) {
       // 页面不活动时暂停处理
       if (!isPageActive) {
-        console.log("页面不活动，暂停队列处理...");
+        //console.log("页面不活动，暂停队列处理...");
         await sleep(1000); // 每秒检查一次
         continue; // 不处理当前卡片，重新判断
       }
@@ -358,7 +414,7 @@
         if (data) {
           const container = card.querySelector(blacklistblockContainerClass);
           if (!container) {
-            console.log(`BV: ${bv} 未找到容器，跳过`);
+            //console.log(`BV: ${bv} 未找到容器，跳过`);
             continue;
           }
 
@@ -367,23 +423,18 @@
           tnameGroup.className = "bilibili-blacklist-tname-group";
 
           let hasTname = false;
-
           // 添加一级 tname
           if (data.tname) {
             //console.log(`处理 BV: ${bv} - 分类: ${data.tname}`);
-            const tnameElement = document.createElement("span");
-            tnameElement.textContent = data.tname;
-            tnameElement.className = "bilibili-blacklist-tname";
-            tnameGroup.appendChild(tnameElement);
+            const btn = createTNameBlockButton(data.tname, card);
+            tnameGroup.appendChild(btn);
             hasTname = true;
           }
 
           // 添加二级 tname_v2
           if (data.tname_v2) {
             //console.log(`处理 BV: ${bv} - 分类2: ${data.tname_v2}`);
-            const tnameElement = document.createElement("span");
-            tnameElement.textContent = data.tname_v2;
-            tnameElement.className = "bilibili-blacklist-tname";
+            const tnameElement = createTNameBlockButton(data.tname_v2, card);
             tnameGroup.appendChild(tnameElement);
             hasTname = true;
           }
@@ -395,7 +446,8 @@
         }
 
         // 等待一小段时间，防止请求过快
-        await sleep(114);
+        const sleeptime = globalConfig.processQueueInterval ? globalConfig.processQueueInterval : 100;
+        await sleep(sleeptime);
       } else {
         console.warn("未找到 BV 号，跳过");
       }
@@ -404,6 +456,7 @@
     isProcessingCardQueue = false;
   }
   function addButtontTNameQueue(card) {
+    if (!globalConfig.flagTName) return;
     const bv = getCardBv(card);
     if (bv) {
       cardSequenceGetJson.add(card);
@@ -445,6 +498,21 @@
     btn.addEventListener("click", (e) => {
       e.stopPropagation(); // 防止事件冒泡
       addToExactBlacklist(upName, cardElement); // 使用公共函数
+    });
+
+    return btn;
+  }
+  function createTNameBlockButton(tName, cardElement) {
+    const btn = document.createElement("span");
+    btn.className = "bilibili-blacklist-tname";
+    btn.innerHTML = `${tName}`;
+    btn.title = `屏蔽: ${tName}`;
+
+    // 屏蔽按钮样式
+    // 点击时添加到黑名单
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation(); // 防止事件冒泡
+      addToTNameBlachlist(tName, cardElement);
     });
 
     return btn;
@@ -512,47 +580,67 @@
     });
   }
   // 创建黑名单管理面板
-  let btnTempUnblock = null; // 暂时取消屏蔽按钮
-  let exactList; // 精确匹配列表
+  let btnTempUnblock = null;
+  let exactList; //精确匹配列表
+  let regexList; //正则匹配列表
+  let tNameList; //tname匹配列表
+  let configList; //配置列表
   let blockTitle;
+
+  // 工具函数：创建按钮
+  function createButton(text, bgColor, onClick) {
+    const button = document.createElement("button");
+    button.textContent = text;
+    button.style.padding = "4px 8px";
+    button.style.background = bgColor;
+    button.style.color = "#fff";
+    button.style.border = "none";
+    button.style.borderRadius = "4px";
+    button.style.cursor = "pointer";
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  // 工具函数：创建列表项
+  function createListItem(contentText, onRemoveClick, isRegex = false) {
+    const item = document.createElement("li");
+    item.style.display = "flex";
+    item.style.justifyContent = "space-between";
+    item.style.alignItems = "center";
+    item.style.padding = "8px 0";
+    item.style.borderBottom = "1px solid #f1f2f3";
+
+    const content = document.createElement("span");
+    content.textContent = contentText;
+    content.style.flex = "1";
+    if (isRegex) {
+      content.style.fontFamily = "monospace";
+    }
+
+    const removeBtn = createButton("移除", "#f56c6c", onRemoveClick);
+
+    item.appendChild(content);
+    item.appendChild(removeBtn);
+    return item;
+  }
+
+  // 更新精确匹配列表
   function updateExactList() {
-    if (!exactList) return; // 安全检查
-
+    if (!exactList) return;
     exactList.innerHTML = "";
+
     exactBlacklist.forEach((upName) => {
-      const item = document.createElement("li");
-      item.style.display = "flex";
-      item.style.justifyContent = "space-between";
-      item.style.alignItems = "center";
-      item.style.padding = "8px 0";
-      item.style.borderBottom = "1px solid #f1f2f3";
-
-      const name = document.createElement("span");
-      name.textContent = upName;
-      name.style.flex = "1";
-
-      const removeBtn = document.createElement("button");
-      removeBtn.textContent = "移除";
-      removeBtn.style.padding = "4px 8px";
-      removeBtn.style.background = "#f56c6c"; // 红色
-      removeBtn.style.color = "#fff";
-      removeBtn.style.border = "none";
-      removeBtn.style.borderRadius = "4px";
-      removeBtn.style.cursor = "pointer";
-      removeBtn.addEventListener("click", () => {
-        removeFromExactBlacklist(upName); // 使用公共函数移除
-        BlockCard(); // 更新后重新执行屏蔽
+      const item = createListItem(upName, () => {
+        removeFromExactBlacklist(upName);
+        BlockCard(); //更新屏蔽卡片
       });
+      exactList.appendChild(item);
+    });
 
-      item.appendChild(name);
-      item.appendChild(removeBtn);
-      exactList.appendChild(item);
-    });
-    // 反转列表顺序
-    const items = Array.from(exactList.children);
-    items.reverse().forEach((item) => {
-      exactList.appendChild(item);
-    });
+    Array.from(exactList.children)
+      .reverse()
+      .forEach((item) => exactList.appendChild(item));
+
     if (exactBlacklist.length === 0) {
       const empty = document.createElement("div");
       empty.textContent = "暂无精确匹配屏蔽UP主";
@@ -563,11 +651,204 @@
     }
   }
 
+  // 更新正则匹配列表
+  function updateRegexList() {
+    if (!regexList) return;
+    regexList.innerHTML = "";
+
+    regexBlacklist.forEach((regex, index) => {
+      const item = createListItem(
+        regex,
+        () => {
+          regexBlacklist.splice(index, 1);
+          saveBlacklists();
+          updateRegexList();
+          BlockCard();
+        },
+        true
+      );
+      regexList.appendChild(item);
+    });
+
+    Array.from(regexList.children)
+      .reverse()
+      .forEach((item) => regexList.appendChild(item));
+
+    if (regexBlacklist.length === 0) {
+      const empty = document.createElement("div");
+      empty.textContent = "暂无正则匹配屏蔽规则";
+      empty.style.textAlign = "center";
+      empty.style.padding = "16px";
+      empty.style.color = "#999";
+      regexList.appendChild(empty);
+    }
+  }
+  function updateTNameList() {
+    if (!tNameList) return;
+    tNameList.innerHTML = "";
+
+    tNameBlacklist.forEach((tName, index) => {
+      //console.log("移除标签", tName);
+      const item = createListItem(tName, () => {
+        tNameBlacklist.splice(index, 1);
+        saveBlacklists();
+        updateTNameList();
+        BlockCard();
+      });
+      tNameList.appendChild(item);
+    });
+
+    Array.from(tNameList.children)
+      .reverse()
+      .forEach((item) => tNameList.appendChild(item));
+
+    if (tNameBlacklist.length === 0) {
+      const empty = document.createElement("div");
+      empty.textContent = "暂无标签屏蔽规则";
+      empty.style.textAlign = "center";
+      empty.style.padding = "16px";
+      empty.style.color = "#999";
+      tNameList.appendChild(empty);
+    }
+  }
+  function updateConfig() {
+    if (!configList) return;
+    // 清空 configContent
+    configList.innerHTML = "";
+    //开关
+    const container = document.createElement("div");
+    container.style.display = "flex";
+    container.style.alignItems = "center";
+    container.style.marginBottom = "8px";
+    container.style.gap = "8px";
+    container.style.margin= "20px 0";
+    const label = document.createElement("span");
+    label.textContent = "临时开关";
+    label.style.flex = "1";
+    btnTempUnblock = document.createElement("button");
+    btnTempUnblock.textContent = isShowAll ? "恢复屏蔽" : "取消屏蔽";
+    btnTempUnblock.style.background = isShowAll ? "#dddddd" : "#fb7299";
+    btnTempUnblock.style.padding = "6px 12px";
+    btnTempUnblock.style.border = "none";
+    btnTempUnblock.style.cursor = "pointer";
+    btnTempUnblock.style.color = "#fff";
+    btnTempUnblock.addEventListener("click", toggleShowAll);
+    container.appendChild(label);
+    container.appendChild(btnTempUnblock);
+    
+    configList.appendChild(container);
+    // 标题
+    const title = document.createElement("h4");
+    title.textContent = "全局配置开关(部分功能刷新后生效)";
+    title.style.fontWeight= "bold";
+    title.style.marginBottom = "12px";
+    configList.appendChild(title);
+
+    // 工具函数：创建一个开关按钮
+    function createToggleButton(labelText, configKey, title = null) {
+      const container = document.createElement("div");
+      container.style.display = "flex";
+      container.style.alignItems = "center";
+      container.style.marginBottom = "8px";
+      container.style.gap = "8px";
+      container.title = title;
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      label.style.flex = "1";
+
+      const button = document.createElement("button");
+      button.style.padding = "6px 12px";
+      button.style.border = "none";
+      button.style.borderRadius = "4px";
+      button.style.cursor = "pointer";
+      button.style.color = "#fff";
+
+      function updateButtonStyle() {
+        button.textContent = globalConfig[configKey] ? "开启" : "关闭";
+        button.style.backgroundColor = globalConfig[configKey]
+          ? "#fb7299"
+          : "#909399";
+      }
+
+      button.addEventListener("click", () => {
+        globalConfig[configKey] = !globalConfig[configKey];
+        updateButtonStyle();
+        saveGlobalConfig(); // 你可以实现此函数，将globalConfig存储到localStorage或其他
+      });
+
+      updateButtonStyle();
+
+      container.appendChild(label);
+      container.appendChild(button);
+
+      return container;
+    }
+
+    // 创建3个开关
+    configList.appendChild(
+      createToggleButton("屏蔽标题/Up主名", "flagInfo", "屏蔽标题/Up主名")
+    );
+    configList.appendChild(
+      createToggleButton("屏蔽分类标签", "flagTName", "屏蔽分类标签")
+    );
+    configList.appendChild(createToggleButton("屏蔽主页推荐", "flagAD"));
+    configList.appendChild(createToggleButton("屏蔽主页视频软广", "flagCM"));
+
+    // 处理队列请求间隔
+    const intervalContainer = document.createElement("div");
+    intervalContainer.style.display = "flex";
+    intervalContainer.style.alignItems = "center";
+    intervalContainer.style.marginTop = "16px";
+    intervalContainer.style.gap = "8px";
+    intervalContainer.title =
+      "请求API间隔时间，间隔时间越长，屏蔽越快，但可能会被B站检测到，默认100ms";
+
+    const intervalLabel = document.createElement("span");
+    intervalLabel.textContent = "视频分类-处理队列请求间隔 (ms):";
+
+    intervalLabel.style.flex = "1";
+
+    const intervalInput = document.createElement("input");
+    intervalInput.type = "number";
+    intervalInput.min = "0";
+    intervalInput.value = globalConfig.processQueueInterval;
+    intervalInput.style.width = "100px";
+    intervalInput.style.padding = "6px";
+    intervalInput.style.border = "1px solid #ddd";
+    intervalInput.style.borderRadius = "4px";
+
+    const saveIntervalBtn = document.createElement("button");
+    saveIntervalBtn.textContent = "保存";
+    saveIntervalBtn.style.padding = "6px 12px";
+    saveIntervalBtn.style.backgroundColor = "#fb7299";
+    saveIntervalBtn.style.color = "#fff";
+    saveIntervalBtn.style.border = "none";
+    saveIntervalBtn.style.borderRadius = "4px";
+    saveIntervalBtn.style.cursor = "pointer";
+
+    saveIntervalBtn.addEventListener("click", () => {
+      const val = parseInt(intervalInput.value, 10);
+      if (!isNaN(val) && val >= 0) {
+        globalConfig.processQueueInterval = val;
+        saveGlobalConfig(); // 保存配置
+        //alert("处理队列请求间隔已保存！");
+      } else {
+        alert("请输入有效的非负数字！");
+      }
+    });
+
+    intervalContainer.appendChild(intervalLabel);
+    intervalContainer.appendChild(intervalInput);
+    intervalContainer.appendChild(saveIntervalBtn);
+    configList.appendChild(intervalContainer);
+    return configList;
+  }
+
+  // 创建黑名单面板
   function createBlacklistPanel() {
-    // 创建主面板容器
     const panel = document.createElement("div");
     panel.id = "bilibili-blacklist-panel";
-    // 面板样式（居中模态框）
+
     panel.style.position = "fixed";
     panel.style.top = "50%";
     panel.style.left = "50%";
@@ -582,50 +863,66 @@
     panel.style.display = "none";
     panel.style.flexDirection = "column";
 
-    // 选项卡
     const tabContainer = document.createElement("div");
     tabContainer.style.display = "flex";
     tabContainer.style.borderBottom = "1px solid #f1f2f3";
 
-    // 精确匹配选项卡
-    const exactTab = document.createElement("div");
-    exactTab.textContent = "精确匹配";
-    exactTab.style.padding = "12px 16px";
-    exactTab.style.cursor = "pointer";
-    exactTab.style.fontWeight = "500";
-    exactTab.style.borderBottom = "2px solid #fb7299"; // 活动选项卡的粉色下划线
+    // 内容区
+    const exactContent = document.createElement("div");
+    exactContent.style.padding = "16px";
+    exactContent.style.overflowY = "auto";
+    exactContent.style.flex = "1";
+    exactContent.style.display = "block";
 
-    // 正则匹配选项卡
-    const regexTab = document.createElement("div");
-    regexTab.textContent = "正则匹配(Up/标题)";
-    regexTab.style.padding = "12px 16px";
-    regexTab.style.cursor = "pointer";
-    // 屏蔽 标签 选项卡
-    const tnameTab = document.createElement("div");
-    tnameTab.textContent = "屏蔽标签";
-    tnameTab.style.padding = "12px 16px";
-    tnameTab.style.cursor = "pointer";
-    // 配置开关选项卡
-    const configTab = document.createElement("div");
-    configTab.textContent = "配置开关";
-    configTab.style.padding = "12px 16px";
-    configTab.style.cursor = "pointer";
-    tabContainer.appendChild(exactTab);
-    tabContainer.appendChild(regexTab);
-    tabContainer.appendChild(tnameTab);
-    tabContainer.appendChild(configTab);
+    const regexContent = document.createElement("div");
+    regexContent.style.padding = "16px";
+    regexContent.style.overflowY = "auto";
+    regexContent.style.flex = "1";
+    regexContent.style.display = "none";
 
-    // 选项卡内容容器
-    const tabContentContainer = document.createElement("div");
-    tabContentContainer.style.flex = "1";
-    tabContentContainer.style.overflow = "auto";
+    const tnameContent = document.createElement("div");
+    tnameContent.style.padding = "16px";
+    tnameContent.style.overflowY = "auto";
+    tnameContent.style.flex = "1";
+    tnameContent.style.display = "none";
 
-    // 精确匹配内容
-    exactList = document.createElement("ul");
-    exactList.style.padding = "0";
-    exactList.style.margin = "0";
+    const configContent = document.createElement("div");
+    configContent.style.padding = "16px";
+    configContent.style.overflowY = "auto";
+    configContent.style.flex = "1";
+    configContent.style.display = "none";
+    const tabs = [
+      { name: "精确匹配", content: exactContent },
+      { name: "正则匹配(Up/标题)", content: regexContent },
+      { name: "屏蔽标签", content: tnameContent },
+      { name: "配置开关", content: configContent },
+    ];
 
-    // 面板头部
+    tabs.forEach((tabData) => {
+      const tab = document.createElement("div");
+      tab.textContent = tabData.name;
+      tab.style.padding = "12px 16px";
+      tab.style.cursor = "pointer";
+      tab.style.fontWeight = "500";
+      tab.style.borderBottom =
+        tabData.content.style.display === "block"
+          ? "2px solid #fb7299"
+          : "none";
+
+      tab.addEventListener("click", () => {
+        tabs.forEach(({ tab: t, content: c }) => {
+          t.style.borderBottom = "none";
+          c.style.display = "none";
+        });
+        tab.style.borderBottom = "2px solid #fb7299";
+        tabData.content.style.display = "block";
+      });
+
+      tabData.tab = tab;
+      tabContainer.appendChild(tab);
+    });
+
+    // Header 区域
     const header = document.createElement("div");
     header.style.padding = "16px";
     header.style.borderBottom = "1px solid #f1f2f3";
@@ -638,19 +935,6 @@
     blockTitle.style.fontSize = "16px";
     blockTitle.style.fontWeight = "500";
 
-    // 暂时取消屏蔽
-    btnTempUnblock = document.createElement("button");
-    btnTempUnblock.textContent = isShowAll ? "恢复屏蔽" : "取消屏蔽";
-    btnTempUnblock.style.padding = "8px 16px";
-    btnTempUnblock.style.border = "none";
-    btnTempUnblock.style.borderRadius = "4px";
-    btnTempUnblock.style.backgroundColor = "#fb7299";
-    btnTempUnblock.style.color = "#fff";
-    btnTempUnblock.style.cursor = "pointer";
-    btnTempUnblock.style.marginRight = "8px";
-    btnTempUnblock.style.float = "right";
-    btnTempUnblock.addEventListener("click", toggleShowAll);
-    // 关闭按钮
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "×";
     closeBtn.style.background = "none";
@@ -663,30 +947,15 @@
     });
 
     header.appendChild(blockTitle);
-    header.appendChild(btnTempUnblock);
     header.appendChild(closeBtn);
-    // 内容区域
+
     const contentContainer = document.createElement("div");
     contentContainer.style.display = "flex";
     contentContainer.style.flexDirection = "column";
     contentContainer.style.flex = "1";
     contentContainer.style.overflow = "hidden";
 
-    // 精确匹配内容
-    const exactContent = document.createElement("div");
-    exactContent.style.padding = "16px";
-    exactContent.style.overflowY = "auto";
-    exactContent.style.flex = "1";
-    exactContent.style.display = "block";
-
-    // 正则匹配内容
-    const regexContent = document.createElement("div");
-    regexContent.style.padding = "16px";
-    regexContent.style.overflowY = "auto";
-    regexContent.style.flex = "1";
-    regexContent.style.display = "none";
-
-    // 添加新UP主的输入框
+    // 精确匹配输入框
     const addExactContainer = document.createElement("div");
     addExactContainer.style.display = "flex";
     addExactContainer.style.marginBottom = "16px";
@@ -703,7 +972,7 @@
     const addExactBtn = document.createElement("button");
     addExactBtn.textContent = "添加";
     addExactBtn.style.padding = "8px 16px";
-    addExactBtn.style.background = "#fb7299"; // B站粉色
+    addExactBtn.style.background = "#fb7299";
     addExactBtn.style.color = "#fff";
     addExactBtn.style.border = "none";
     addExactBtn.style.borderRadius = "4px";
@@ -711,8 +980,8 @@
     addExactBtn.addEventListener("click", () => {
       const upName = exactInput.value.trim();
       if (upName) {
-        addToExactBlacklist(upName); // 使用公共函数添加到精确黑名单
-        exactInput.value = ""; // 清空输入框
+        addToExactBlacklist(upName);
+        exactInput.value = "";
       }
     });
 
@@ -720,7 +989,7 @@
     addExactContainer.appendChild(addExactBtn);
     exactContent.appendChild(addExactContainer);
 
-    // 添加正则表达式的输入框
+    // 正则匹配输入框
     const addRegexContainer = document.createElement("div");
     addRegexContainer.style.display = "flex";
     addRegexContainer.style.marginBottom = "16px";
@@ -746,12 +1015,12 @@
       const regex = regexInput.value.trim();
       if (regex && !regexBlacklist.includes(regex)) {
         try {
-          new RegExp(regex); // 测试正则表达式是否有效
+          new RegExp(regex);
           regexBlacklist.push(regex);
           saveBlacklists();
           regexInput.value = "";
           updateRegexList();
-          BlockCard(); // 更新后重新执行屏蔽
+          BlockCard();
         } catch (e) {
           alert("无效的正则表达式: " + e.message);
         }
@@ -769,93 +1038,45 @@
     exactList.style.margin = "0";
 
     // 正则匹配列表
-    const regexList = document.createElement("ul");
+    regexList = document.createElement("ul");
     regexList.style.listStyle = "none";
     regexList.style.padding = "0";
     regexList.style.margin = "0";
 
-    // 更新正则匹配列表显示
-    function updateRegexList() {
-      regexList.innerHTML = "";
-      regexBlacklist.forEach((regex, index) => {
-        const item = document.createElement("li");
-        item.style.display = "flex";
-        item.style.justifyContent = "space-between";
-        item.style.alignItems = "center";
-        item.style.padding = "8px 0";
-        item.style.borderBottom = "1px solid #f1f2f3";
+    // tname列表
+    tNameList = document.createElement("ul");
+    tNameList.style.listStyle = "none";
+    tNameList.style.padding = "0";
+    tNameList.style.margin = "0";
 
-        const regexText = document.createElement("span");
-        regexText.textContent = regex;
-        regexText.style.flex = "1";
-        regexText.style.fontFamily = "monospace"; // 正则表达式使用等宽字体
+    configList = document.createElement("ul");
+    configList.style.listStyle = "none";
+    configList.style.padding = "0";
+    configList.style.margin = "0";
 
-        const removeBtn = document.createElement("button");
-        removeBtn.textContent = "移除";
-        removeBtn.style.padding = "4px 8px";
-        removeBtn.style.background = "#f56c6c";
-        removeBtn.style.color = "#fff";
-        removeBtn.style.border = "none";
-        removeBtn.style.borderRadius = "4px";
-        removeBtn.style.cursor = "pointer";
-        removeBtn.addEventListener("click", () => {
-          regexBlacklist.splice(index, 1);
-          saveBlacklists();
-          updateRegexList();
-          BlockCard(); // 更新后重新执行屏蔽
-        });
-
-        item.appendChild(regexText);
-        item.appendChild(removeBtn);
-        regexList.appendChild(item);
-      });
-      const items = Array.from(regexList.children);
-      items.reverse().forEach((item) => {
-        regexList.appendChild(item);
-      });
-      // 如果没有项目则显示空状态
-      if (regexBlacklist.length === 0) {
-        const empty = document.createElement("div");
-        empty.textContent = "暂无正则匹配屏蔽规则";
-        empty.style.textAlign = "center";
-        empty.style.padding = "16px";
-        empty.style.color = "#999";
-        regexList.appendChild(empty);
-      }
-    }
-
-    // 初始化列表
+    // 更新列表
     updateExactList();
     updateRegexList();
+    updateTNameList();
+    updateConfig();
 
     exactContent.appendChild(exactList);
     regexContent.appendChild(regexList);
-
+    tnameContent.appendChild(tNameList);
+    configContent.appendChild(configList);
     contentContainer.appendChild(exactContent);
     contentContainer.appendChild(regexContent);
+    contentContainer.appendChild(tnameContent);
+    contentContainer.appendChild(configContent);
 
     panel.appendChild(tabContainer);
     panel.appendChild(header);
     panel.appendChild(contentContainer);
 
-    // 选项卡切换
-    exactTab.addEventListener("click", () => {
-      exactTab.style.borderBottom = "2px solid #fb7299";
-      regexTab.style.borderBottom = "none";
-      exactContent.style.display = "block";
-      regexContent.style.display = "none";
-    });
-
-    regexTab.addEventListener("click", () => {
-      regexTab.style.borderBottom = "2px solid #fb7299";
-      exactTab.style.borderBottom = "none";
-      exactContent.style.display = "none";
-      regexContent.style.display = "block";
-    });
-
     document.body.appendChild(panel);
     return panel;
   }
+
   // 添加全局样式
   GM_addStyle(`
         .bilibili-blacklist-block-container {
@@ -1023,7 +1244,7 @@
         BlockCard();
         addBlacklistManagerButton(); // 确保每次都添加黑名单管理按钮
         if (isMainPage()) {
-          BlockAD(); // 屏蔽页面广告
+          BlockMainAD(); // 屏蔽页面广告
         }
         if (isVideoPage()) {
           BlockVideoPageAd(); // 屏蔽视频页面广告
@@ -1069,7 +1290,7 @@
     processedCards = new WeakSet();
     if (isMainPage()) {
       initMainPage(); // 初始化主页
-      BlockAD(); // 屏蔽主页广告
+      BlockMainAD(); // 屏蔽主页广告
     } else if (isSearchPage()) {
       initSearchPage(); // 初始化搜索页
     } else if (isVideoPage()) {
@@ -1219,19 +1440,22 @@
 
   //#region 额外功能-屏蔽广告
   // 屏蔽广告
-  function BlockAD() {
-    // 屏蔽某些推广
-    document.querySelectorAll(".floor-single-card").forEach((adCard) => {
-      adCard.remove();
-    });
-    // 屏蔽直播推广
-    document.querySelectorAll(".bili-live-card").forEach((adCard) => {
-      adCard.remove();
+  function BlockMainAD() {
+    if (!globalConfig.flagAD) return;
+    const adSelectors = [
+      ".floor-single-card", // 分区推荐
+      ".bili-live-card", // 直播推广
+    ];
+    adSelectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((adCard) => {
+        adCard.remove();
+      });
     });
   }
 
   // 屏蔽视频页面广告（使用数组优化）
   function BlockVideoPageAd() {
+    if (!globalConfig.flagAD) return;
     const adSelectors = [
       ".video-card-ad-small", // 右上角推广
       ".slide-ad-exp", // 大推广
