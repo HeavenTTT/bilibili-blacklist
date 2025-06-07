@@ -403,7 +403,7 @@
       cardSequenceGetJson.delete(card);
       if (!card) continue;
       if (cardSequenceGetJsonDone.has(card)) {
-        console.log("卡片已处理过" + card.textContent);
+        //("卡片已处理过" + card.textContent);
         continue;
       }
       const bv = getCardBv(card);
@@ -412,13 +412,13 @@
         ".bilibili-blacklist-block-container"
       );
       if (!container) {
-        console.log("未找到容器" + card.textContent);
+        //console.log("未找到容器" + card.textContent);
         continue;
       }
       cardSequenceGetJsonDone.add(card);
       const data = await getBilibiliVideoAPI(bv);
       if (!data) {
-        console.log("未找到数据" + card.textContent);
+        // console.log("未找到数据" + card.textContent);
         cardSequenceGetJsonDone.remove(card);
         continue;
       }
