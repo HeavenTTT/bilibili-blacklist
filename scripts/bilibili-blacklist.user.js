@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.2
+// @version      1.1.3
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -300,10 +300,10 @@
     } catch (e) {
       console.error("移除黑名单出错:", e);
     } finally {
-      BlockCard();
+      //BlockCard();
     }
   }
-  function addToTNameBlachlist(tname, cardElement = null) {
+  function addToTNameBlacklist(tname, cardElement = null) {
     try {
       if (!tname) return;
       if (!tNameBlacklist.includes(tname)) {
@@ -522,8 +522,7 @@
     // 点击时添加到黑名单
     btn.addEventListener("click", (e) => {
       e.stopPropagation(); // 防止事件冒泡
-      addToTNameBlachlist(tName, cardElement);
-      updateTNameList();
+      addToTNameBlacklist(tName, cardElement);
     });
 
     return btn;
@@ -643,7 +642,7 @@
     exactBlacklist.forEach((upName) => {
       const item = createListItem(upName, () => {
         removeFromExactBlacklist(upName);
-        BlockCard(); //更新屏蔽卡片
+        //BlockCard(); //更新屏蔽卡片
       });
       exactList.appendChild(item);
     });
@@ -674,7 +673,7 @@
           regexBlacklist.splice(index, 1);
           saveBlacklists();
           updateRegexList();
-          BlockCard();
+          //BlockCard();
         },
         true
       );
@@ -695,16 +694,15 @@
     }
   }
   function updateTNameList() {
-    if (!tNameList) return;
+    if (!tNameList)  return;
+    
     tNameList.innerHTML = "";
 
     tNameBlacklist.forEach((tName, index) => {
-      //console.log("移除标签", tName);
       const item = createListItem(tName, () => {
         tNameBlacklist.splice(index, 1);
         saveBlacklists();
-        updateTNameList();
-        BlockCard();
+        updateTNameList(); // 确保这里
       });
       tNameList.appendChild(item);
     });
@@ -722,6 +720,7 @@
       tNameList.appendChild(empty);
     }
   }
+
   function updateConfig() {
     if (!configList) return;
     // 清空 configContent
@@ -1031,7 +1030,7 @@
           saveBlacklists();
           regexInput.value = "";
           updateRegexList();
-          BlockCard();
+          //BlockCard();
         } catch (e) {
           alert("无效的正则表达式: " + e.message);
         }
@@ -1041,7 +1040,6 @@
     addRegexContainer.appendChild(regexInput);
     addRegexContainer.appendChild(addRegexBtn);
     regexContent.appendChild(addRegexContainer);
-
     // 精确匹配列表
     exactList = document.createElement("ul");
     exactList.style.listStyle = "none";
@@ -1060,6 +1058,7 @@
     tNameList.style.padding = "0";
     tNameList.style.margin = "0";
 
+    // 配置列表
     configList = document.createElement("ul");
     configList.style.listStyle = "none";
     configList.style.padding = "0";
