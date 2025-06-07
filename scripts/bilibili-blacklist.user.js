@@ -523,6 +523,7 @@
     btn.addEventListener("click", (e) => {
       e.stopPropagation(); // 防止事件冒泡
       addToTNameBlachlist(tName, cardElement);
+      updateTNameList();
     });
 
     return btn;
