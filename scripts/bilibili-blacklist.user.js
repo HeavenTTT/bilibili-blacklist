@@ -446,7 +446,9 @@
         }
 
         // 等待一小段时间，防止请求过快
-        const sleeptime = globalConfig.processQueueInterval ? globalConfig.processQueueInterval : 100;
+        const sleeptime = globalConfig.processQueueInterval
+          ? globalConfig.processQueueInterval
+          : 100;
         await sleep(sleeptime);
       } else {
         console.warn("未找到 BV 号，跳过");
@@ -721,7 +723,7 @@
     container.style.alignItems = "center";
     container.style.marginBottom = "8px";
     container.style.gap = "8px";
-    container.style.margin= "20px 0";
+    container.style.margin = "20px 0";
     const label = document.createElement("span");
     label.textContent = "临时开关";
     label.style.flex = "1";
@@ -735,12 +737,12 @@
     btnTempUnblock.addEventListener("click", toggleShowAll);
     container.appendChild(label);
     container.appendChild(btnTempUnblock);
-    
+
     configList.appendChild(container);
     // 标题
     const title = document.createElement("h4");
     title.textContent = "全局配置开关(部分功能刷新后生效)";
-    title.style.fontWeight= "bold";
+    title.style.fontWeight = "bold";
     title.style.marginBottom = "12px";
     configList.appendChild(title);
 
