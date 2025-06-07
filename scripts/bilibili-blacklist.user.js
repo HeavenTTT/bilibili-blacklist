@@ -437,20 +437,10 @@
   function createBlockButton(upName, cardElement) {
     const btn = document.createElement("div");
     btn.className = "bilibili-blacklist-block-btn";
-    btn.innerHTML = "×";
+    btn.innerHTML = "屏蔽";
     btn.title = `屏蔽: ${upName}`;
 
     // 屏蔽按钮样式
-    btn.style.position = "absolute";
-    btn.style.backgroundColor = "#fb7299dd";
-    btn.style.color = "white";
-    btn.style.borderRadius = "5%";
-    btn.style.cursor = "pointer";
-    btn.style.zIndex = "100";
-    btn.style.fontSize = "16px";
-    btn.style.fontWeight = "bold";
-    btn.style.transition = "opacity 0.2s";
-
     // 点击时添加到黑名单
     btn.addEventListener("click", (e) => {
       e.stopPropagation(); // 防止事件冒泡
@@ -610,14 +600,19 @@
     regexTab.textContent = "正则匹配(Up/标题)";
     regexTab.style.padding = "12px 16px";
     regexTab.style.cursor = "pointer";
-    //开关配置选项卡
+    // 屏蔽 标签 选项卡
+    const tnameTab = document.createElement("div");
+    tnameTab.textContent = "屏蔽标签";
+    tnameTab.style.padding = "12px 16px";
+    tnameTab.style.cursor = "pointer";
+    // 配置开关选项卡
     const configTab = document.createElement("div");
-    configTab.textContent = "配置";
+    configTab.textContent = "配置开关";
     configTab.style.padding = "12px 16px";
     configTab.style.cursor = "pointer";
-
     tabContainer.appendChild(exactTab);
     tabContainer.appendChild(regexTab);
+    tabContainer.appendChild(tnameTab);
     tabContainer.appendChild(configTab);
 
     // 选项卡内容容器
@@ -653,6 +648,7 @@
     btnTempUnblock.style.color = "#fff";
     btnTempUnblock.style.cursor = "pointer";
     btnTempUnblock.style.marginRight = "8px";
+    btnTempUnblock.style.float = "right";
     btnTempUnblock.addEventListener("click", toggleShowAll);
     // 关闭按钮
     const closeBtn = document.createElement("button");
@@ -871,14 +867,17 @@
           height: 20px;
           margin-top: 5px;
           padding: 0 5px;
-          font-size: 14px;
+          font-size: 12px;
           flex-direction: row;
           justify-content: space-between; /* 左右分布 */
           align-items: center;
           gap: 3px;
-          background: rgba(0, 0, 0, 0);
+          /*渐变背景
+          background: linear-gradient(to top, #fb729955,#ffffff00);*/
           z-index: 9999;
           pointer-events: none;
+          text-align:center;
+        
       }
 
       .bili-video-card:hover .bilibili-blacklist-block-container,
@@ -891,15 +890,15 @@
           position: static;
           display: flex;
           width: 40px;
-          height: 100%;
+          height: 20px;
           justify-content: center;
           align-items: center;
           pointer-events: auto !important;
           background-color: #fb7299dd;
           color: white;
-          border-radius: 5%;
+          border-radius: 10%;
           cursor: pointer;
-          font-weight: bold;
+          text-align: center;
       }
 
       .bilibili-blacklist-tname-group {
@@ -914,12 +913,16 @@
       .bilibili-blacklist-tname {
           background-color: #fb7299dd;
           color: white;
-          height: 100%;
+          height: 20px;
           padding: 0 5px;
-          border-radius: 5%;
+          border-radius: 10%;
           cursor: pointer;
           border-radius: 2px;
           pointer-events: auto;
+          text-align: center;
+          display: flex; 
+          justify-content: center; 
+          align-items: center; 
       }
 
 
