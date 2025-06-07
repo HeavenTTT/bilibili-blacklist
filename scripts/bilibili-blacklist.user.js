@@ -158,7 +158,7 @@
         if (upName && title) {
           processedCards.add(card); // 将卡片标记为已处理
           cardAddBlockcContainer(upName, card); // 添加屏蔽按钮
-         
+
           // 检查是否在黑名单中
           if (isBlacklisted(upName, title) && globalConfig.flagInfo) {
             // 如果在黑名单中，则隐藏卡片
@@ -403,14 +403,15 @@
       cardSequenceGetJson.delete(card);
       if (!card) continue;
       if (cardSequenceGetJsonDone.has(card)) {
-        console.log("卡片已处理过" + card.textContent); 
+        console.log("卡片已处理过" + card.textContent);
         continue;
       }
       const bv = getCardBv(card);
       if (!bv) continue;
-      const container = card.querySelector(".bilibili-blacklist-block-container");
+      const container = card.querySelector(
+        ".bilibili-blacklist-block-container"
+      );
       if (!container) {
-   
         console.log("未找到容器" + card.textContent);
         continue;
       }
