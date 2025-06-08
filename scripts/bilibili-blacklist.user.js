@@ -9,7 +9,6 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @icon         https://www.bilibili.com/favicon.ico
-// @require      https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js
 // @downloadURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js
 // @updateURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.meta.js
 // @license      MIT
@@ -67,10 +66,6 @@
   }
   function saveGlobalConfig() {
     GM_setValue("globalConfig", globalConfig);
-  }
-  //开发用日志，bug：运行该函数后，脚本才能正常工作，原因未知，本插件依赖此bug运行，请勿删除任何引用
-  function Devlog(...args) {
-    if (GM_info.script.version === "Dev") console.log("[Devlog]", ...args);
   }
   //#region 核心功能 - 屏蔽视频卡片
   let isShowAll = false; // 是否显示全部视频卡片
