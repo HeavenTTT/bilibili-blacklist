@@ -9,8 +9,7 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @icon         https://www.bilibili.com/favicon.ico
-// @downloadURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js
-// @updateURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.meta.js
+// @require     none
 // @license      MIT
 // ==/UserScript==
 
