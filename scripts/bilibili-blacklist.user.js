@@ -329,7 +329,7 @@
         const index = tNameBlacklist.indexOf(tname);
         tNameBlacklist.splice(index, 1);
         saveBlacklists();
-        updateTNameList();
+        refreshAllTabs();
       }
     } catch (e) {
       console.error("移除标签黑名单出错:", e);
@@ -593,7 +593,6 @@
       li.addEventListener("click", () => {
         if (managerPanel.style.display === "none") {
           managerPanel.style.display = "flex";
-          //updateBlockCountDisplay(); // 更新屏蔽计数显示
         } else {
           managerPanel.style.display = "none";
         }
@@ -650,9 +649,14 @@
   function refreshExactList() {
     Devlog("refreshExactList1");
     if (!exactList) {
-      if (!isBlacklistPanelCreated()) return;
+      if (!isBlacklistPanelCreated()) {
+        return;
+      }
       exactList = document.querySelector("#bilibili-blacklist-exact-list");
-      if (!exactList) return;
+      if (!exactList) {
+        console.warn("[Bilibili-Blacklist] exactList 未定义");
+        return;
+      }
     }
     Devlog("refreshExactList2");
     exactList.innerHTML = "";
@@ -714,9 +718,14 @@
   function refreshTagNameList() {
     Devlog("refreshTagNameList1");
     if (!tNameList) {
-      if (!isBlacklistPanelCreated()) return;
-      tNameList = document.querySelector("#bilibili-blacklist-exact-list");
-      if (!tNameList) return;
+      if (!isBlacklistPanelCreated()) {
+        return;
+      }
+      tNameList = document.querySelector("#bilibili-blacklist-tname-list");
+      if (!tNameList) {
+        console.warn("[Bilibili-Blacklist] tNameList 未定义");
+        return;
+      }
     }
     Devlog("refreshTagNameList2");
     tNameList.innerHTML = "";
@@ -727,7 +736,7 @@
       });
       tNameList.appendChild(item);
     });
-    Devlog("refreshExactList length:" + tNameBlacklist.length);
+    Devlog("tNameBlacklist length:" + tNameBlacklist.length);
     Array.from(tNameList.children)
       .reverse()
       .forEach((item) => tNameList.appendChild(item));
@@ -1081,21 +1090,21 @@
 
     // 正则匹配列表
     regexList = document.createElement("ul");
-    exactList.id = "bilibili-blacklist-regex-list";
+    regexList.id = "bilibili-blacklist-regex-list";
     regexList.style.listStyle = "none";
     regexList.style.padding = "0";
     regexList.style.margin = "0";
 
     // tname列表
     tNameList = document.createElement("ul");
-    exactList.id = "bilibili-blacklist-tname-list";
+    tNameList.id = "bilibili-blacklist-tname-list";
     tNameList.style.listStyle = "none";
     tNameList.style.padding = "0";
     tNameList.style.margin = "0";
 
     // 配置列表
     configList = document.createElement("ul");
-    exactList.id = "bilibili-blacklist-config-list";
+    configList.id = "bilibili-blacklist-config-list";
     configList.style.listStyle = "none";
     configList.style.padding = "0";
     configList.style.margin = "0";
@@ -1312,9 +1321,12 @@
         if (isVideoPage()) {
           BlockVideoPageAd(); // 屏蔽视频页面广告
         }
-        if (!document.getElementById("bilibili-blacklist-manager"))
-          addBlacklistManagerButton(); // 添加黑名单管理按钮
-        if (!isBlacklistPanelCreated()) createBlacklistPanel();
+        if (!document.getElementById("bilibili-blacklist-manager")) {
+          addBlacklistManagerButton();
+        }
+        if (!isBlacklistPanelCreated()) {
+          createBlacklistPanel();
+        }
       }, 1000);
     }
   });
@@ -1351,30 +1363,33 @@
   let isInit = false; // 是否已经初始化
   function init() {
     // 重置状态
-    isBlocking = false;
-    lastBlockTime = 0;
-    blockedCards = new Set(); // 使用 Set 存储已屏蔽的卡片
-    processedCards = new WeakSet();
-    cardSequenceGetJson = new Set();
-    if (isMainPage()) {
-      initMainPage(); // 初始化主页
-      BlockMainAD(); // 屏蔽主页广告
-    } else if (isSearchPage()) {
-      initSearchPage(); // 初始化搜索页
-    } else if (isVideoPage()) {
-      initVideoPage(); // 初始化播放页
-      //BlockVideoPageAd(); // 屏蔽视频页面广告
-    } else if (isCategoryPage()) {
-      initCategoryPage(); // 初始化分类页
-    } else if (isUserSpace()) {
-      initUserSpace(); // 初始化用户空间
-      //return; // 用户空间不需要屏蔽
-    } else {
-      return; // 如果不是已知页面则不执行
+    if (!isInit) {
+      isBlocking = false;
+      lastBlockTime = 0;
+      blockedCards = new Set(); // 使用 Set 存储已屏蔽的卡片
+      processedCards = new WeakSet();
+      cardSequenceGetJson = new Set();
+
+      if (isMainPage()) {
+        initMainPage(); // 初始化主页
+        BlockMainAD(); // 屏蔽主页广告
+      } else if (isSearchPage()) {
+        initSearchPage(); // 初始化搜索页
+      } else if (isVideoPage()) {
+        initVideoPage(); // 初始化播放页
+        //BlockVideoPageAd(); // 屏蔽视频页面广告
+      } else if (isCategoryPage()) {
+        initCategoryPage(); // 初始化分类页
+      } else if (isUserSpace()) {
+        initUserSpace(); // 初始化用户空间
+        //return; // 用户空间不需要屏蔽
+      } else {
+        return; // 如果不是已知页面则不执行
+      }
+      BlockCard(); // 初始化时立即执行屏蔽
+      addBlacklistManagerButton(); // 添加黑名单管理按钮
+      createBlacklistPanel();
     }
-    BlockCard(); // 初始化时立即执行屏蔽
-    addBlacklistManagerButton(); // 添加黑名单管理按钮
-    createBlacklistPanel();
     isInit = true; // 标记为已初始化
     console.log("BiliBili黑名单脚本已加载🥔");
   }
