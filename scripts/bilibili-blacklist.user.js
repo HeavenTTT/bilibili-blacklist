@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.5
+// @version      1.1.6
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -1380,7 +1380,10 @@
     document.readyState === "complete" ||
     document.readyState === "interactive"
   ) {
-    init();
+    if (!isInit) {
+      isInit = true;
+      init();
+    }
   }
   // 检查当前页面是否为B站主页
   function isMainPage() {
