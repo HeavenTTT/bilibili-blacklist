@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.4
+// @version      1.1.5
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -285,7 +285,7 @@
         }
       }
     } catch (e) {
-      console.error("添加黑名单出错:", e);
+      console.error("[bilibili-blacklist] 添加黑名单出错:", e);
     }
   }
   function removeFromExactBlacklist(upName) {
@@ -294,10 +294,10 @@
         const index = exactBlacklist.indexOf(upName);
         exactBlacklist.splice(index, 1);
         saveBlacklists();
-        refreshAllTabs();
+        refreshExactList();
       }
     } catch (e) {
-      console.error("移除黑名单出错:", e);
+      console.error("[bilibili-blacklist] 移除黑名单出错:", e);
     } finally {
       //BlockCard();
     }
@@ -316,7 +316,7 @@
         }
       }
     } catch (e) {
-      console.error("添加标签黑名单出错:", e);
+      console.error("[bilibili-blacklist] 添加标签黑名单出错:", e);
     }
   }
   function removeFromTNameBlacklist(tname) {
@@ -325,10 +325,10 @@
         const index = tNameBlacklist.indexOf(tname);
         tNameBlacklist.splice(index, 1);
         saveBlacklists();
-        refreshAllTabs();
+        refreshTagNameList();
       }
     } catch (e) {
-      console.error("移除标签黑名单出错:", e);
+      console.error("[bilibili-blacklist] 移除标签黑名单出错:", e);
     }
   }
   //#endregion
@@ -374,7 +374,7 @@
         return null;
       }
     } catch (error) {
-      console.error("请求失败:", error);
+      console.error("[bilibili-blacklist] API 请求失败:", error);
     }
   }
   function isCardBlacklistTName(card) {
@@ -540,7 +540,7 @@
     }
     const rightEntry = document.querySelector(".right-entry");
     if (!rightEntry) {
-      console.warn("bilibili-blacklist: 未找到右侧导航栏");
+      console.warn("[bilibili-blacklist] 未找到右侧导航栏");
       return;
     } else if (!rightEntry.querySelector("#bilibili-blacklist-manager")) {
       //else if(rightEntry.getElementById('bilibili-blacklist-manager')){
@@ -1331,11 +1331,11 @@
     } else {
       // 如果没找到根节点则重试
       setTimeout(() => initObserver(container), 500);
-      console.warn("未找到根节点，正在重试...");
+      console.warn("[bilibili-blacklist] 未找到根节点，正在重试...");
       observerError++;
 
       if (observerError > 10) {
-        console.error("重试次数过多，停止重试。");
+        console.error("[bilibili-blacklist] 重试次数过多，停止重试。");
         return false;
       }
     }
@@ -1374,7 +1374,7 @@
       createBlacklistPanel();
     }
     isInit = true; // 标记为已初始化
-    console.log("BiliBili黑名单脚本已加载🥔");
+    console.log("[bilibili-blacklist] 脚本已加载🥔");
   }
   // 监听页面加载完成事件
   document.addEventListener("DOMContentLoaded", init);
@@ -1388,7 +1388,7 @@
 
   function initMainPage() {
     initObserver("i_cecream"); // 传入B站主页的主容器ID
-    console.log("主页已加载🍓");
+    console.log("[bilibili-blacklist] 主页已加载🍓");
   }
   /// -----搜索页----
   function isSearchPage() {
@@ -1396,7 +1396,7 @@
   }
   function initSearchPage() {
     initObserver("i_cecream");
-    console.log("搜索页已加载🍉");
+    console.log("[bilibili-blacklist] 搜索页已加载🍉");
   }
   /// --- 播放页 ---
   function isVideoPage() {
@@ -1404,7 +1404,7 @@
   }
   function initVideoPage() {
     initObserver("rcmd-tab");
-    console.log("播放页已加载🍇");
+    console.log("[bilibili-blacklist] 播放页已加载🍇");
   }
   // ---- 分类页 ----
   function isCategoryPage() {
@@ -1412,14 +1412,14 @@
   }
   function initCategoryPage() {
     initObserver("win");
-    console.log("分类页已加载🍊");
+    console.log("[bilibili-blacklist] 分类页已加载🍊");
   }
   ///---用户空间---
   function isUserSpace() {
     return location.hostname === "space.bilibili.com";
   }
   function initUserSpace() {
-    console.log("用户空间已加载🍎");
+    console.log("[bilibili-blacklist] 用户空间已加载🍎");
     const upNameSelector = "#h-name, .nickname";
     const observerForUpName = new MutationObserver((mutations, observer) => {
       const upNameElement = document.querySelector(upNameSelector);
