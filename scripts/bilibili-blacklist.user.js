@@ -9,7 +9,6 @@
 // @grant        GM_getValue
 // @grant        GM_addStyle
 // @icon         https://www.bilibili.com/favicon.ico
-// @require     none
 // @license      MIT
 // ==/UserScript==
 
