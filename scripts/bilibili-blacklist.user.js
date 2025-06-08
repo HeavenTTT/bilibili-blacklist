@@ -274,13 +274,10 @@
   }
   /// 添加UP主到精确黑名单并刷新页面
   function addToExactBlacklist(upName, cardElement = null) {
-    Devlog("添加黑名单:", upName);
     try {
       if (!upName) return;
-      Devlog("添加黑名单:", upName);
       if (!exactBlacklist.includes(upName)) {
         exactBlacklist.push(upName);
-        Devlog("添加黑名单成功:", exactBlacklist.length);
         saveBlacklists();
         refreshAllTabs();
         if (cardElement) {
@@ -306,13 +303,12 @@
     }
   }
   function addToTNameBlacklist(tname, cardElement = null) {
-    Devlog("添加标签黑名单:", tname);
     try {
-      if (!tname) return;
-      Devlog("添加标签黑名单:", tname);
+      if (!tname) {
+        return;
+      }
       if (!tNameBlacklist.includes(tname)) {
         tNameBlacklist.push(tname);
-        Devlog("添加标签黑名单成功:", tNameBlacklist.length);
         saveBlacklists();
         refreshAllTabs();
         if (cardElement) {
@@ -354,7 +350,6 @@
         //判断链接是不是cm.bilili
         if (link.match(/cm.bilibili.com/) && globalConfig.flagCM) {
           hideCard(card);
-          //Devlog("软广链接，已屏蔽");
           return null;
         }
         const bv = link.match(/BV\w+/);
@@ -374,11 +369,8 @@
       const response = await fetch(url);
       const json = await response.json();
       if (json.code === 0) {
-        //Devlog("data1:", json.data.tname);
-        //Devlog("data2:", json.data.tname_v2);
         return json.data;
       } else {
-        //console.error("获取视频信息失败:", bvid);
         return null;
       }
     } catch (error) {
@@ -407,9 +399,7 @@
     isProcessingCardQueue = true;
 
     while (cardSequenceGetJson.size > 0) {
-      // 页面不活动时暂停处理
       if (!isPageActive) {
-        //Devlog("页面不活动，暂停队列处理...");
         await sleep(1000); // 每秒检查一次
         continue; // 不处理当前卡片，重新判断
       }
@@ -521,10 +511,8 @@
     // 屏蔽按钮样式
     // 点击时添加到黑名单
     btn.addEventListener("click", (e) => {
-      Devlog("屏蔽: " + upName);
       e.stopPropagation(); // 防止事件冒泡
-      Devlog("屏蔽: " + upName);
-      addToExactBlacklist(upName, cardElement); // 使用公共函数
+      addToExactBlacklist(upName, cardElement);
     });
 
     return btn;
@@ -538,9 +526,7 @@
     // 屏蔽按钮样式
     // 点击时添加到黑名单
     btn.addEventListener("click", (e) => {
-      Devlog("屏蔽: " + tName);
       e.stopPropagation(); // 防止事件冒泡
-      Devlog("屏蔽: " + tName);
       addToTNameBlacklist(tName, cardElement);
     });
 
@@ -647,7 +633,6 @@
 
   // 更新精确匹配列表
   function refreshExactList() {
-    Devlog("refreshExactList1");
     if (!exactList) {
       if (!isBlacklistPanelCreated()) {
         return;
@@ -658,7 +643,6 @@
         return;
       }
     }
-    Devlog("refreshExactList2");
     exactList.innerHTML = "";
     exactBlacklist.forEach((upName) => {
       const item = createListItem(upName, () => {
@@ -667,7 +651,6 @@
       });
       exactList.appendChild(item);
     });
-    Devlog("refreshExactList length:" + exactBlacklist.length);
     Array.from(exactList.children)
       .reverse()
       .forEach((item) => exactList.appendChild(item));
@@ -716,7 +699,6 @@
   }
   // 更新tname匹配列表
   function refreshTagNameList() {
-    Devlog("refreshTagNameList1");
     if (!tNameList) {
       if (!isBlacklistPanelCreated()) {
         return;
@@ -727,7 +709,6 @@
         return;
       }
     }
-    Devlog("refreshTagNameList2");
     tNameList.innerHTML = "";
 
     tNameBlacklist.forEach((tName) => {
@@ -736,7 +717,6 @@
       });
       tNameList.appendChild(item);
     });
-    Devlog("tNameBlacklist length:" + tNameBlacklist.length);
     Array.from(tNameList.children)
       .reverse()
       .forEach((item) => tNameList.appendChild(item));
@@ -894,12 +874,22 @@
     refreshConfigSettings();
   }
   function isBlacklistPanelCreated() {
-    return document.querySelector("#bilibili-blacklist-panel") ? true : false;
+    const panelInDom = document.querySelector(
+      "#bilibili-blacklist-manager-panel"
+    );
+    if (panelInDom) {
+      if (!managerPanel) {
+        managerPanel = panelInDom;
+      }
+      return true;
+    }
+    return false;
   }
   // 创建黑名单面板
   function createBlacklistPanel() {
-    Devlog(isBlacklistPanelCreated());
-    if (isBlacklistPanelCreated()) return;
+    if (isBlacklistPanelCreated()) {
+      return;
+    }
     managerPanel = document.createElement("div");
     managerPanel.id = "bilibili-blacklist-panel";
 
@@ -951,7 +941,6 @@
       { name: "屏蔽分类", content: tnameContent },
       { name: "插件配置", content: configContent },
     ];
-
     tabs.forEach((tabData) => {
       const tab = document.createElement("div");
       tab.textContent = tabData.name;
@@ -1001,7 +990,6 @@
 
     header.appendChild(blockTitle);
     header.appendChild(closeBtn);
-
     const contentContainer = document.createElement("div");
     contentContainer.style.display = "flex";
     contentContainer.style.flexDirection = "column";
@@ -1040,7 +1028,6 @@
     addExactContainer.appendChild(exactInput);
     addExactContainer.appendChild(addExactBtn);
     exactContent.appendChild(addExactContainer);
-
     // 正则匹配输入框
     const addRegexContainer = document.createElement("div");
     addRegexContainer.style.display = "flex";
@@ -1094,7 +1081,6 @@
     regexList.style.listStyle = "none";
     regexList.style.padding = "0";
     regexList.style.margin = "0";
-
     // tname列表
     tNameList = document.createElement("ul");
     tNameList.id = "bilibili-blacklist-tname-list";
@@ -1324,9 +1310,6 @@
         if (!document.getElementById("bilibili-blacklist-manager")) {
           addBlacklistManagerButton();
         }
-        if (!isBlacklistPanelCreated()) {
-          createBlacklistPanel();
-        }
       }, 1000);
     }
   });
@@ -1395,10 +1378,7 @@
   }
   // 监听页面加载完成事件
   document.addEventListener("DOMContentLoaded", init);
-  if (
-    document.readyState === "interactive" ||
-    document.readyState === "complete"
-  ) {
+  if (document.readyState === "complete") {
     init();
   }
   // 检查当前页面是否为B站主页
@@ -1428,12 +1408,10 @@
   }
   // ---- 分类页 ----
   function isCategoryPage() {
-    // 页面链接 https://www.bilibili.com/c/xxxxxx
-    // 通过检查路径名是否以 "/c/" 开头来判断是否为分类页
     return location.pathname.startsWith("/c/");
   }
   function initCategoryPage() {
-    initObserver("app");
+    initObserver("win");
     console.log("分类页已加载🍊");
   }
   ///---用户空间---
@@ -1442,27 +1420,22 @@
   }
   function initUserSpace() {
     console.log("用户空间已加载🍎");
-
-    // Use a more robust way to find the UP name element, and observe for its presence
     const upNameSelector = "#h-name, .nickname";
     const observerForUpName = new MutationObserver((mutations, observer) => {
       const upNameElement = document.querySelector(upNameSelector);
       if (upNameElement) {
-        observer.disconnect(); // Stop observing once found
+        observer.disconnect();
         addBlockButtonToUserSpace(upNameElement);
       }
     });
 
-    // Start observing the body for changes
     observerForUpName.observe(document.body, {
       childList: true,
       subtree: true,
     });
-
-    // Also try to find it immediately in case it's already there
     const initialUpNameElement = document.querySelector(upNameSelector);
     if (initialUpNameElement) {
-      observerForUpName.disconnect(); // Disconnect if found immediately
+      observerForUpName.disconnect();
       addBlockButtonToUserSpace(initialUpNameElement);
     }
   }
@@ -1512,8 +1485,7 @@
       } else {
         addToExactBlacklist(upName);
       }
-      refreshButtonStatus(); // refresh button state immediately
-      // No need to re-run initUserSpace(); it causes unnecessary re-initializations
+      refreshButtonStatus();
     });
 
     refreshButtonStatus(); // Set initial button state
