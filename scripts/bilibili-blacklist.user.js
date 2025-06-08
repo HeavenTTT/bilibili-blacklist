@@ -65,6 +65,10 @@
   function saveGlobalConfig() {
     GM_setValue("globalConfig", globalConfig);
   }
+  //开发用日志，bug：运行该函数后，脚本才能正常工作，原因未知，本插件依赖此bug运行，请勿删除任何引用
+  function Devlog(...args) {
+    if (GM_info.script.version === "Dev") console.log("[Devlog]", ...args);
+  }
   //#region 核心功能 - 屏蔽视频卡片
   let isShowAll = false; // 是否显示全部视频卡片
   let isBlocking = false; // 是否正在执行屏蔽操作
@@ -613,10 +617,6 @@
     const content = document.createElement("span");
     content.textContent = contentText;
     content.style.flex = "1";
-    if (isRegex) {
-      content.style.fontFamily = "monospace";
-    }
-
     const removeBtn = createButton("移除", "#f56c6c", onRemoveClick);
 
     item.appendChild(content);
@@ -890,7 +890,7 @@
     managerPanel.style.top = "50%";
     managerPanel.style.left = "50%";
     managerPanel.style.transform = "translate(-50%, -50%)";
-    managerPanel.style.width = "700px";
+    managerPanel.style.width = "500px";
     managerPanel.style.maxHeight = "80vh";
     managerPanel.style.backgroundColor = "#fff";
     managerPanel.style.borderRadius = "8px";
@@ -968,14 +968,12 @@
 
     blockTitle = document.createElement("h3");
     blockTitle.style.margin = "0";
-    blockTitle.style.fontSize = "16px";
     blockTitle.style.fontWeight = "500";
 
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "×";
     closeBtn.style.background = "none";
     closeBtn.style.border = "none";
-    closeBtn.style.fontSize = "20px";
     closeBtn.style.cursor = "pointer";
     closeBtn.style.padding = "0 8px";
     closeBtn.addEventListener("click", () => {
@@ -1127,7 +1125,7 @@
           z-index: 9999;
           pointer-events: none;
           text-align:center;
-        
+
       }
 
       .bili-video-card:hover .bilibili-blacklist-block-container,
@@ -1190,9 +1188,9 @@
           border-radius: 2px;
           pointer-events: auto;
           text-align: center;
-          display: flex; 
-          justify-content: center; 
-          align-items: center; 
+          display: flex;
+          justify-content: center;
+          align-items: center;
           text-overflow: ellipsis;
           overflow: hidden;
           white-space: nowrap;
@@ -1205,8 +1203,7 @@
         }
         /* 面板样式 */
         #bilibili-blacklist-panel {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            font-size: 18px;
+            font-size: 15px;
         }
         /* 按钮悬停效果 */
         #bilibili-blacklist-panel button {
@@ -1229,7 +1226,7 @@
         }
         /*灰度效果*/
         .bilibili-blacklist-grayscale {
-           filter: grayscale(95%); 
+           filter: grayscale(95%);
         }
 
 
@@ -1373,10 +1370,7 @@
     document.readyState === "complete" ||
     document.readyState === "interactive"
   ) {
-    if (!isInit) {
-      isInit = true;
-      init();
-    }
+    init();
   }
   // 检查当前页面是否为B站主页
   function isMainPage() {
