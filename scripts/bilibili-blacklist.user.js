@@ -68,7 +68,10 @@
   function saveGlobalConfig() {
     GM_setValue("globalConfig", globalConfig);
   }
-
+  //开发用日志，bug：运行该函数后，脚本才能正常工作，原因未知，本插件依赖此bug运行，请勿删除任何引用
+  function Devlog(...args) {
+    if (GM_info.script.version === "Dev") console.log("[Devlog]", ...args);
+  }
   //#region 核心功能 - 屏蔽视频卡片
   let isShowAll = false; // 是否显示全部视频卡片
   let isBlocking = false; // 是否正在执行屏蔽操作
@@ -88,7 +91,6 @@
             const blockButton = createBlockButton(upName, card);
             card.querySelector(".card-box").style.position = "relative";
             card.querySelector(".card-box").appendChild(container);
-            blockButton.style.scale = "80%"; // 缩小按钮
             container.appendChild(blockButton);
           }
         } else if (isCategoryPage()) {
@@ -147,7 +149,6 @@
       } else if (isSearchPage()) {
         cards = querySelectorAllVideoCard(".bili-video-card");
       } else return; // 如果不是视频页面，则不执行屏蔽操作
-      //console.log(`检测到 ${cards.length} 个视频卡片`);
       cards.forEach((card) => {
         addButtontTNameQueue(card);
         if (processedCards.has(card)) {
@@ -171,7 +172,7 @@
           //console.warn("未找到UP主名称或视频标题，跳过屏蔽:", card);
         }
       });
-      updateBlockCountDisplay();
+      refreshBlockCountDisplay();
       FixedMainPage(); // 修正主页的错位问题
     } finally {
       isBlocking = false; // 重置屏蔽状态
@@ -203,13 +204,13 @@
     }
   }
   // 更新屏蔽计数显示
-  function updateBlockCountDisplay() {
+  function refreshBlockCountDisplay() {
     if (blockCountDiv) {
       blockCountDiv.textContent = `${blockedCards.size}`; // 更新右侧导航栏的屏蔽计数
     }
     // 更新面板标题（如果面板已打开）
-    const panel = document.getElementById("bilibili-blacklist-panel");
-    if (panel && blockTitle) {
+    //const panel = document.getElementById("bilibili-blacklist-panel");
+    if (isBlacklistPanelCreated() && blockTitle) {
       blockTitle.textContent = `已屏蔽视频 (${blockedCards.size})`; // 更新面板标题
     }
   }
@@ -244,7 +245,6 @@
       //处理分类页面的UP主名称
       if (isCategoryPage()) {
         upName = upName.split(" · ")[0].trim();
-        //console.log(`分类页面UP主名称: ${upName}`);
       }
     }
     const titleElement = card.querySelectorAll(selectorTitle.join(", ")); // 使用逗号分隔的选择器
@@ -274,16 +274,18 @@
   }
   /// 添加UP主到精确黑名单并刷新页面
   function addToExactBlacklist(upName, cardElement = null) {
+    Devlog("添加黑名单:", upName);
     try {
       if (!upName) return;
+      Devlog("添加黑名单:", upName);
       if (!exactBlacklist.includes(upName)) {
         exactBlacklist.push(upName);
+        Devlog("添加黑名单成功:", exactBlacklist.length);
         saveBlacklists();
-        updateExactList();
+        refreshAllTabs();
         if (cardElement) {
           hideCard(cardElement); // 隐藏当前卡片
         }
-        //BlockCard();
       }
     } catch (e) {
       console.error("添加黑名单出错:", e);
@@ -295,7 +297,7 @@
         const index = exactBlacklist.indexOf(upName);
         exactBlacklist.splice(index, 1);
         saveBlacklists();
-        updateExactList();
+        refreshAllTabs();
       }
     } catch (e) {
       console.error("移除黑名单出错:", e);
@@ -304,20 +306,21 @@
     }
   }
   function addToTNameBlacklist(tname, cardElement = null) {
+    Devlog("添加标签黑名单:", tname);
     try {
-      if (!tname) {
-        return;
-      }
+      if (!tname) return;
+      Devlog("添加标签黑名单:", tname);
       if (!tNameBlacklist.includes(tname)) {
         tNameBlacklist.push(tname);
+        Devlog("添加标签黑名单成功:", tNameBlacklist.length);
         saveBlacklists();
-        updateTNameList();
+        refreshAllTabs();
         if (cardElement) {
           hideCard(cardElement); //隐藏卡片
         }
       }
     } catch (e) {
-      console.error("添加黑名单出错:", e);
+      console.error("添加标签黑名单出错:", e);
     }
   }
   function removeFromTNameBlacklist(tname) {
@@ -351,7 +354,7 @@
         //判断链接是不是cm.bilili
         if (link.match(/cm.bilibili.com/) && globalConfig.flagCM) {
           hideCard(card);
-          //console.log("软广链接，已屏蔽");
+          //Devlog("软广链接，已屏蔽");
           return null;
         }
         const bv = link.match(/BV\w+/);
@@ -371,8 +374,8 @@
       const response = await fetch(url);
       const json = await response.json();
       if (json.code === 0) {
-        //console.log("data1:", json.data.tname);
-        //console.log("data2:", json.data.tname_v2);
+        //Devlog("data1:", json.data.tname);
+        //Devlog("data2:", json.data.tname_v2);
         return json.data;
       } else {
         //console.error("获取视频信息失败:", bvid);
@@ -406,7 +409,7 @@
     while (cardSequenceGetJson.size > 0) {
       // 页面不活动时暂停处理
       if (!isPageActive) {
-        //console.log("页面不活动，暂停队列处理...");
+        //Devlog("页面不活动，暂停队列处理...");
         await sleep(1000); // 每秒检查一次
         continue; // 不处理当前卡片，重新判断
       }
@@ -425,13 +428,13 @@
         ".bilibili-blacklist-block-container"
       );
       if (!container) {
-        //console.log("未找到容器" + card.textContent);
+        //Devlog("未找到容器" + card.textContent);
         continue;
       }
       cardSequenceGetJsonDone.add(card);
       const data = await getBilibiliVideoAPI(bv);
       if (!data) {
-        // console.log("未找到数据" + card.textContent);
+        // Devlog("未找到数据" + card.textContent);
         cardSequenceGetJsonDone.remove(card);
         continue;
       }
@@ -446,7 +449,7 @@
         let hasTname = false;
         // 添加一级 tname
         if (data.tname) {
-          //console.log(`处理 BV: ${bv} - 分类: ${data.tname}`);
+          //Devlog(`处理 BV: ${bv} - 分类: ${data.tname}`);
           const btn = createTNameBlockButton(data.tname, card);
           tnameGroup.appendChild(btn);
           hasTname = true;
@@ -454,7 +457,7 @@
 
         // 添加二级 tname_v2
         if (data.tname_v2) {
-          //console.log(`处理 BV: ${bv} - 分类2: ${data.tname_v2}`);
+          //Devlog(`处理 BV: ${bv} - 分类2: ${data.tname_v2}`);
           const tnameElement = createTNameBlockButton(data.tname_v2, card);
           tnameGroup.appendChild(tnameElement);
           hasTname = true;
@@ -493,18 +496,18 @@
   // 页面可见性监听
   document.addEventListener("visibilitychange", () => {
     isPageActive = !document.hidden;
-    //console.log(`页面可见状态改变: ${isPageActive ? "活动" : "隐藏"}`);
+    //Devlog(`页面可见状态改变: ${isPageActive ? "活动" : "隐藏"}`);
   });
 
   // 窗口焦点监听
   window.addEventListener("focus", () => {
     isPageActive = true;
-    //console.log("窗口获得焦点");
+    //Devlog("窗口获得焦点");
   });
 
   window.addEventListener("blur", () => {
     isPageActive = false;
-    //console.log("窗口失去焦点");
+    //Devlog("窗口失去焦点");
   });
 
   //#endregion
@@ -518,7 +521,9 @@
     // 屏蔽按钮样式
     // 点击时添加到黑名单
     btn.addEventListener("click", (e) => {
+      Devlog("屏蔽: " + upName);
       e.stopPropagation(); // 防止事件冒泡
+      Devlog("屏蔽: " + upName);
       addToExactBlacklist(upName, cardElement); // 使用公共函数
     });
 
@@ -533,7 +538,9 @@
     // 屏蔽按钮样式
     // 点击时添加到黑名单
     btn.addEventListener("click", (e) => {
+      Devlog("屏蔽: " + tName);
       e.stopPropagation(); // 防止事件冒泡
+      Devlog("屏蔽: " + tName);
       addToTNameBlacklist(tName, cardElement);
     });
 
@@ -584,23 +591,18 @@
       }
       // 点击按钮时显示面板
       li.addEventListener("click", () => {
-        if (panel.style.display === "none") {
-          panel.style.display = "flex";
+        if (managerPanel.style.display === "none") {
+          managerPanel.style.display = "flex";
           //updateBlockCountDisplay(); // 更新屏蔽计数显示
         } else {
-          panel.style.display = "none";
+          managerPanel.style.display = "none";
         }
       });
     }
-
-    // 如果面板不存在则创建
-    let panel = document.getElementById("bilibili-blacklist-panel");
-    if (!panel) {
-      panel = createBlacklistPanel();
-    }
   }
   // 创建黑名单管理面板
-  let btnTempUnblock = null;
+  let btnTempUnblock;
+  let managerPanel;
   let exactList; //精确匹配列表
   let regexList; //正则匹配列表
   let tNameList; //tname匹配列表
@@ -645,8 +647,14 @@
   }
 
   // 更新精确匹配列表
-  function updateExactList() {
-    if (!exactList) return;
+  function refreshExactList() {
+    Devlog("refreshExactList1");
+    if (!exactList) {
+      if (!isBlacklistPanelCreated()) return;
+      exactList = document.querySelector("#bilibili-blacklist-exact-list");
+      if (!exactList) return;
+    }
+    Devlog("refreshExactList2");
     exactList.innerHTML = "";
     exactBlacklist.forEach((upName) => {
       const item = createListItem(upName, () => {
@@ -655,7 +663,7 @@
       });
       exactList.appendChild(item);
     });
-
+    Devlog("refreshExactList length:" + exactBlacklist.length);
     Array.from(exactList.children)
       .reverse()
       .forEach((item) => exactList.appendChild(item));
@@ -671,7 +679,7 @@
   }
 
   // 更新正则匹配列表
-  function updateRegexList() {
+  function refreshRegexList() {
     if (!regexList) return;
     regexList.innerHTML = "";
 
@@ -681,7 +689,7 @@
         () => {
           regexBlacklist.splice(index, 1);
           saveBlacklists();
-          updateRegexList();
+          refreshRegexList();
           //BlockCard();
         },
         true
@@ -702,11 +710,15 @@
       regexList.appendChild(empty);
     }
   }
-  function updateTNameList() {
+  // 更新tname匹配列表
+  function refreshTagNameList() {
+    Devlog("refreshTagNameList1");
     if (!tNameList) {
-      return;
+      if (!isBlacklistPanelCreated()) return;
+      tNameList = document.querySelector("#bilibili-blacklist-exact-list");
+      if (!tNameList) return;
     }
-
+    Devlog("refreshTagNameList2");
     tNameList.innerHTML = "";
 
     tNameBlacklist.forEach((tName) => {
@@ -715,7 +727,7 @@
       });
       tNameList.appendChild(item);
     });
-
+    Devlog("refreshExactList length:" + tNameBlacklist.length);
     Array.from(tNameList.children)
       .reverse()
       .forEach((item) => tNameList.appendChild(item));
@@ -729,8 +741,8 @@
       tNameList.appendChild(empty);
     }
   }
-
-  function updateConfig() {
+  // 更新配置列表
+  function refreshConfigSettings() {
     if (!configList) return;
     // 清空 configContent
     configList.innerHTML = "";
@@ -782,7 +794,7 @@
       button.style.cursor = "pointer";
       button.style.color = "#fff";
 
-      function updateButtonStyle() {
+      function refreshButtonAppearance() {
         button.textContent = globalConfig[configKey] ? "开启" : "关闭";
         button.style.backgroundColor = globalConfig[configKey]
           ? "#fb7299"
@@ -791,11 +803,11 @@
 
       button.addEventListener("click", () => {
         globalConfig[configKey] = !globalConfig[configKey];
-        updateButtonStyle();
+        refreshButtonAppearance();
         saveGlobalConfig(); // 你可以实现此函数，将globalConfig存储到localStorage或其他
       });
 
-      updateButtonStyle();
+      refreshButtonAppearance();
 
       container.appendChild(label);
       container.appendChild(button);
@@ -808,10 +820,14 @@
       createToggleButton("屏蔽标题/Up主名", "flagInfo", "屏蔽标题/Up主名")
     );
     configList.appendChild(
-      createToggleButton("屏蔽分类标签", "flagTName", "屏蔽分类标签")
+      createToggleButton("屏蔽分类标签", "flagTName", "通过请求API获取分类标签")
     );
-    configList.appendChild(createToggleButton("屏蔽主页推荐", "flagAD"));
-    configList.appendChild(createToggleButton("屏蔽主页视频软广", "flagCM"));
+    configList.appendChild(
+      createToggleButton("屏蔽主页推荐", "flagAD", "直播/广告/分区推送")
+    );
+    configList.appendChild(
+      createToggleButton("屏蔽主页视频软广", "flagCM", "cm.bilibili.com软广")
+    );
 
     // 处理队列请求间隔
     const intervalContainer = document.createElement("div");
@@ -820,7 +836,7 @@
     intervalContainer.style.marginTop = "16px";
     intervalContainer.style.gap = "8px";
     intervalContainer.title =
-      "请求API间隔时间，间隔时间越长，屏蔽越快，但可能会被B站检测到，默认100ms";
+      "请求API间隔时间，间隔时间越长，屏蔽越快，请求频繁可以会被临时ban，建议值 100ms";
 
     const intervalLabel = document.createElement("span");
     intervalLabel.textContent = "视频分类-处理队列请求间隔 (ms):";
@@ -862,25 +878,35 @@
     configList.appendChild(intervalContainer);
     return configList;
   }
-
+  function refreshAllTabs() {
+    refreshExactList();
+    refreshRegexList();
+    refreshTagNameList();
+    refreshConfigSettings();
+  }
+  function isBlacklistPanelCreated() {
+    return document.querySelector("#bilibili-blacklist-panel") ? true : false;
+  }
   // 创建黑名单面板
   function createBlacklistPanel() {
-    const panel = document.createElement("div");
-    panel.id = "bilibili-blacklist-panel";
+    Devlog(isBlacklistPanelCreated());
+    if (isBlacklistPanelCreated()) return;
+    managerPanel = document.createElement("div");
+    managerPanel.id = "bilibili-blacklist-panel";
 
-    panel.style.position = "fixed";
-    panel.style.top = "50%";
-    panel.style.left = "50%";
-    panel.style.transform = "translate(-50%, -50%)";
-    panel.style.width = "500px";
-    panel.style.maxHeight = "80vh";
-    panel.style.backgroundColor = "#fff";
-    panel.style.borderRadius = "8px";
-    panel.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.15)";
-    panel.style.zIndex = "99999";
-    panel.style.overflow = "hidden";
-    panel.style.display = "none";
-    panel.style.flexDirection = "column";
+    managerPanel.style.position = "fixed";
+    managerPanel.style.top = "50%";
+    managerPanel.style.left = "50%";
+    managerPanel.style.transform = "translate(-50%, -50%)";
+    managerPanel.style.width = "500px";
+    managerPanel.style.maxHeight = "80vh";
+    managerPanel.style.backgroundColor = "#fff";
+    managerPanel.style.borderRadius = "8px";
+    managerPanel.style.boxShadow = "0 4px 12px rgba(0, 0, 0, 0.15)";
+    managerPanel.style.zIndex = "99999";
+    managerPanel.style.overflow = "hidden";
+    managerPanel.style.display = "none";
+    managerPanel.style.flexDirection = "column";
 
     const tabContainer = document.createElement("div");
     tabContainer.style.display = "flex";
@@ -911,10 +937,10 @@
     configContent.style.flex = "1";
     configContent.style.display = "none";
     const tabs = [
-      { name: "精确匹配", content: exactContent },
+      { name: "精确匹配(Up名字)", content: exactContent },
       { name: "正则匹配(Up/标题)", content: regexContent },
-      { name: "屏蔽标签", content: tnameContent },
-      { name: "配置开关", content: configContent },
+      { name: "屏蔽分类", content: tnameContent },
+      { name: "插件配置", content: configContent },
     ];
 
     tabs.forEach((tabData) => {
@@ -935,9 +961,6 @@
         });
         tab.style.borderBottom = "2px solid #fb7299";
         tabData.content.style.display = "block";
-        if (tabData.name === "屏蔽标签") {
-          updateTNameList();
-        }
       });
 
       tabData.tab = tab;
@@ -964,7 +987,7 @@
     closeBtn.style.cursor = "pointer";
     closeBtn.style.padding = "0 8px";
     closeBtn.addEventListener("click", () => {
-      panel.style.display = "none";
+      managerPanel.style.display = "none";
     });
 
     header.appendChild(blockTitle);
@@ -1039,7 +1062,7 @@
           regexBlacklist.push(regex);
           saveBlacklists();
           regexInput.value = "";
-          updateRegexList();
+          refreshRegexList();
           //BlockCard();
         } catch (e) {
           alert("无效的正则表达式: " + e.message);
@@ -1051,33 +1074,34 @@
     regexContent.appendChild(addRegexContainer);
     // 精确匹配列表
     exactList = document.createElement("ul");
+    exactList.id = "bilibili-blacklist-exact-list";
     exactList.style.listStyle = "none";
     exactList.style.padding = "0";
     exactList.style.margin = "0";
 
     // 正则匹配列表
     regexList = document.createElement("ul");
+    exactList.id = "bilibili-blacklist-regex-list";
     regexList.style.listStyle = "none";
     regexList.style.padding = "0";
     regexList.style.margin = "0";
 
     // tname列表
     tNameList = document.createElement("ul");
+    exactList.id = "bilibili-blacklist-tname-list";
     tNameList.style.listStyle = "none";
     tNameList.style.padding = "0";
     tNameList.style.margin = "0";
 
     // 配置列表
     configList = document.createElement("ul");
+    exactList.id = "bilibili-blacklist-config-list";
     configList.style.listStyle = "none";
     configList.style.padding = "0";
     configList.style.margin = "0";
 
     // 更新列表
-    updateExactList();
-    updateRegexList();
-    updateTNameList();
-    updateConfig();
+    refreshAllTabs();
     exactContent.appendChild(exactList);
     regexContent.appendChild(regexList);
     tnameContent.appendChild(tNameList);
@@ -1087,12 +1111,12 @@
     contentContainer.appendChild(tnameContent);
     contentContainer.appendChild(configContent);
 
-    panel.appendChild(tabContainer);
-    panel.appendChild(header);
-    panel.appendChild(contentContainer);
+    managerPanel.appendChild(tabContainer);
+    managerPanel.appendChild(header);
+    managerPanel.appendChild(contentContainer);
 
-    document.body.appendChild(panel);
-    return panel;
+    document.body.appendChild(managerPanel);
+    return managerPanel;
   }
 
   // 添加全局样式
@@ -1108,11 +1132,9 @@
           padding: 0 5px;
           font-size: 12px;
           flex-direction: row;
-          justify-content: space-between; /* 左右分布 */
+          justify-content: space-between;
           align-items: center;
           gap: 3px;
-          /*渐变背景
-          background: linear-gradient(to top, #fb729955,#ffffff00);*/
           z-index: 9999;
           pointer-events: none;
           text-align:center;
@@ -1122,7 +1144,25 @@
       .bili-video-card:hover .bilibili-blacklist-block-container,
       .card-box:hover .bilibili-blacklist-block-container {
           display: flex !important;
-          pointer-events: auto;
+          pointer-events: none;
+      }
+      .card-box .bilibili-blacklist-block-container
+      {
+        flex-direction: column;
+        align-items: flex-start;
+        height: 100%;
+      }
+      .card-box .bilibili-blacklist-tname-group
+      {
+        flex-direction: column;
+        align-items: flex-end;
+        bottom: 0;
+      }
+      .card-box .bilibili-blacklist-tname-group .bilibili-blacklist-tname
+      {
+        background-color:rgba(255, 255, 255, 0.87);
+        color: #9499A0;
+        border: 1px solid #9499A0;
       }
 
       .bilibili-blacklist-block-btn {
@@ -1147,6 +1187,8 @@
           gap: 3px;
           align-items: center;
           margin-left: auto;
+          max-width: 80%;
+          pointer-events: none;
       }
 
       .bilibili-blacklist-tname {
@@ -1162,8 +1204,10 @@
           display: flex; 
           justify-content: center; 
           align-items: center; 
-          text-overflow: ellipsis;// 超出部分显示省略号
-      }
+          text-overflow: ellipsis;
+          overflow: hidden;
+          white-space: nowrap;
+        }
 
 
         /* 修复视频卡片布局 */
@@ -1270,8 +1314,7 @@
         }
         if (!document.getElementById("bilibili-blacklist-manager"))
           addBlacklistManagerButton(); // 添加黑名单管理按钮
-        if (!document.getElementById("bilibili-blacklist-panel"))
-          createBlacklistPanel();
+        if (!isBlacklistPanelCreated()) createBlacklistPanel();
       }, 1000);
     }
   });
@@ -1332,7 +1375,6 @@
     BlockCard(); // 初始化时立即执行屏蔽
     addBlacklistManagerButton(); // 添加黑名单管理按钮
     createBlacklistPanel();
-
     isInit = true; // 标记为已初始化
     console.log("BiliBili黑名单脚本已加载🥔");
   }
@@ -1430,7 +1472,7 @@
     button.style.borderRadius = "5px";
     button.style.border = "1px solid #fb7299";
 
-    const updateButtonState = () => {
+    const refreshButtonStatus = () => {
       const blocked = isBlacklisted(upName);
       if (blocked) {
         button.textContent = "已屏蔽";
@@ -1455,11 +1497,11 @@
       } else {
         addToExactBlacklist(upName);
       }
-      updateButtonState(); // Update button state immediately
+      refreshButtonStatus(); // refresh button state immediately
       // No need to re-run initUserSpace(); it causes unnecessary re-initializations
     });
 
-    updateButtonState(); // Set initial button state
+    refreshButtonStatus(); // Set initial button state
 
     upNameElement.appendChild(button);
   }
