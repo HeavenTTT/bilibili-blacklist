@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.3
+// @version      1.1.4
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -305,20 +305,33 @@
   }
   function addToTNameBlacklist(tname, cardElement = null) {
     try {
-      if (!tname) return;
+      if (!tname) {
+        return;
+      }
       if (!tNameBlacklist.includes(tname)) {
         tNameBlacklist.push(tname);
         saveBlacklists();
         updateTNameList();
         if (cardElement) {
-          hideCard(cardElement); // 隐藏当前卡片
+          hideCard(cardElement); //隐藏卡片
         }
       }
     } catch (e) {
       console.error("添加黑名单出错:", e);
     }
   }
-
+  function removeFromTNameBlacklist(tname) {
+    try {
+      if (tNameBlacklist.includes(tname)) {
+        const index = tNameBlacklist.indexOf(tname);
+        tNameBlacklist.splice(index, 1);
+        saveBlacklists();
+        updateTNameList();
+      }
+    } catch (e) {
+      console.error("移除标签黑名单出错:", e);
+    }
+  }
   //#endregion
 
   //#region Bv号以及视频信息
@@ -502,7 +515,6 @@
     btn.className = "bilibili-blacklist-block-btn";
     btn.innerHTML = "屏蔽";
     btn.title = `屏蔽: ${upName}`;
-
     // 屏蔽按钮样式
     // 点击时添加到黑名单
     btn.addEventListener("click", (e) => {
@@ -534,43 +546,51 @@
       return;
     }
     const rightEntry = document.querySelector(".right-entry");
-    if (
-      !rightEntry ||
-      rightEntry.querySelector("#bilibili-blacklist-manager")
-    ) {
+    if (!rightEntry) {
+      console.warn("bilibili-blacklist: 未找到右侧导航栏");
       return;
-    }
+    } else if (!rightEntry.querySelector("#bilibili-blacklist-manager")) {
+      //else if(rightEntry.getElementById('bilibili-blacklist-manager')){
+      const li = document.createElement("li");
+      li.id = "bilibili-blacklist-manager";
+      li.style.cursor = "pointer";
+      li.className = "v-popover-wrap";
 
-    const li = document.createElement("li");
-    li.id = "bilibili-blacklist-manager";
-    li.style.cursor = "pointer";
-    li.className = "v-popover-wrap";
+      const btn = document.createElement("div");
+      btn.className = "right-entry-item";
+      btn.style.display = "flex";
+      btn.style.flexDirection = "column";
+      btn.style.alignItems = "center";
+      btn.style.justifyContent = "center";
 
-    const btn = document.createElement("div");
-    btn.className = "right-entry-item";
-    btn.style.display = "flex";
-    btn.style.flexDirection = "column";
-    btn.style.alignItems = "center";
-    btn.style.justifyContent = "center";
+      // 可爱的卡比图标SVG
+      const icon = document.createElement("div");
+      icon.className = "right-entry__outside";
+      icon.innerHTML = getKirbySVG();
+      //icon.style.color = '#fb7299'; // B站粉色
+      icon.style.marginBottom = "-5px";
+      blockCountDiv = document.createElement("span");
+      //const text = document.createElement('div');
+      blockCountDiv.textContent = `0`;
+      btn.appendChild(icon);
+      btn.appendChild(blockCountDiv);
+      li.appendChild(btn);
 
-    // 可爱的卡比图标SVG
-    const icon = document.createElement("div");
-    icon.className = "right-entry__outside";
-    icon.innerHTML = getKirbySVG();
-    //icon.style.color = '#fb7299'; // B站粉色
-    icon.style.marginBottom = "-5px";
-    blockCountDiv = document.createElement("span");
-    //const text = document.createElement('div');
-    blockCountDiv.textContent = `0`;
-    btn.appendChild(icon);
-    btn.appendChild(blockCountDiv);
-    li.appendChild(btn);
-
-    // 在导航中插入按钮
-    if (rightEntry.children.length > 1) {
-      rightEntry.insertBefore(li, rightEntry.children[1]);
-    } else {
-      rightEntry.appendChild(li);
+      // 在导航中插入按钮
+      if (rightEntry.children.length > 1) {
+        rightEntry.insertBefore(li, rightEntry.children[1]);
+      } else {
+        rightEntry.appendChild(li);
+      }
+      // 点击按钮时显示面板
+      li.addEventListener("click", () => {
+        if (panel.style.display === "none") {
+          panel.style.display = "flex";
+          //updateBlockCountDisplay(); // 更新屏蔽计数显示
+        } else {
+          panel.style.display = "none";
+        }
+      });
     }
 
     // 如果面板不存在则创建
@@ -578,16 +598,6 @@
     if (!panel) {
       panel = createBlacklistPanel();
     }
-
-    // 点击按钮时显示面板
-    li.addEventListener("click", () => {
-      if (panel.style.display === "none") {
-        panel.style.display = "flex";
-        //updateBlockCountDisplay(); // 更新屏蔽计数显示
-      } else {
-        panel.style.display = "none";
-      }
-    });
   }
   // 创建黑名单管理面板
   let btnTempUnblock = null;
@@ -638,7 +648,6 @@
   function updateExactList() {
     if (!exactList) return;
     exactList.innerHTML = "";
-
     exactBlacklist.forEach((upName) => {
       const item = createListItem(upName, () => {
         removeFromExactBlacklist(upName);
@@ -694,15 +703,15 @@
     }
   }
   function updateTNameList() {
-    if (!tNameList)  return;
-    
+    if (!tNameList) {
+      return;
+    }
+
     tNameList.innerHTML = "";
 
-    tNameBlacklist.forEach((tName, index) => {
+    tNameBlacklist.forEach((tName) => {
       const item = createListItem(tName, () => {
-        tNameBlacklist.splice(index, 1);
-        saveBlacklists();
-        updateTNameList(); // 确保这里
+        removeFromTNameBlacklist(tName);
       });
       tNameList.appendChild(item);
     });
@@ -926,12 +935,14 @@
         });
         tab.style.borderBottom = "2px solid #fb7299";
         tabData.content.style.display = "block";
+        if (tabData.name === "屏蔽标签") {
+          updateTNameList();
+        }
       });
 
       tabData.tab = tab;
       tabContainer.appendChild(tab);
     });
-
     // Header 区域
     const header = document.createElement("div");
     header.style.padding = "16px";
@@ -994,7 +1005,6 @@
         exactInput.value = "";
       }
     });
-
     addExactContainer.appendChild(exactInput);
     addExactContainer.appendChild(addExactBtn);
     exactContent.appendChild(addExactContainer);
@@ -1036,7 +1046,6 @@
         }
       }
     });
-
     addRegexContainer.appendChild(regexInput);
     addRegexContainer.appendChild(addRegexBtn);
     regexContent.appendChild(addRegexContainer);
@@ -1069,7 +1078,6 @@
     updateRegexList();
     updateTNameList();
     updateConfig();
-
     exactContent.appendChild(exactList);
     regexContent.appendChild(regexList);
     tnameContent.appendChild(tNameList);
@@ -1154,6 +1162,7 @@
           display: flex; 
           justify-content: center; 
           align-items: center; 
+          text-overflow: ellipsis;// 超出部分显示省略号
       }
 
 
@@ -1252,13 +1261,17 @@
       processedCards = new WeakSet(); // 重置已处理卡片集合
       setTimeout(() => {
         BlockCard();
-        addBlacklistManagerButton(); // 确保每次都添加黑名单管理按钮
+        //addBlacklistManagerButton(); // 确保每次都添加黑名单管理按钮
         if (isMainPage()) {
           BlockMainAD(); // 屏蔽页面广告
         }
         if (isVideoPage()) {
           BlockVideoPageAd(); // 屏蔽视频页面广告
         }
+        if (!document.getElementById("bilibili-blacklist-manager"))
+          addBlacklistManagerButton(); // 添加黑名单管理按钮
+        if (!document.getElementById("bilibili-blacklist-panel"))
+          createBlacklistPanel();
       }, 1000);
     }
   });
@@ -1267,7 +1280,8 @@
   let observerError = 0;
   function initObserver(container) {
     const rootNode =
-      document.getElementById(container) || // B站的主容器 ID
+      document.getElementById(container) ||
+      document.querySelector(container) ||
       document.documentElement; // 回退到整个文档
 
     if (rootNode) {
@@ -1317,6 +1331,7 @@
     }
     BlockCard(); // 初始化时立即执行屏蔽
     addBlacklistManagerButton(); // 添加黑名单管理按钮
+    createBlacklistPanel();
 
     isInit = true; // 标记为已初始化
     console.log("BiliBili黑名单脚本已加载🥔");
@@ -1351,7 +1366,7 @@
     return location.pathname.startsWith("/video/");
   }
   function initVideoPage() {
-    initObserver("app");
+    initObserver("rcmd-tab");
     console.log("播放页已加载🍇");
   }
   // ---- 分类页 ----
