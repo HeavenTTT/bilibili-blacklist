@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.6
+// @version      1.1.7
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -42,18 +42,12 @@
   ]);
   // 标签屏蔽黑名单
   let tNameBlacklist = GM_getValue("tNameBlacklist", ["手机游戏"]);
-  // let globalConfig = {
-  //   flagInfo: true,
-  //   flagAD: true,
-  //    flagTName : true,
-  //    flagCM: true,
-  //   processQueueInterval: 500, // 单位 ms
-  // };
   let globalConfig = GM_getValue("globalConfig", {
     flagInfo: true,
     flagAD: true,
     flagTName: true,
     flagCM: true,
+    flagKirby: false,
     processQueueInterval: 500, // 单位 ms
   });
   // 保存黑名单到存储
@@ -111,16 +105,24 @@
     }
     if (isMainPage()) {
       // 如果是主页
-      if (card.parentElement.classList.contains("feed-card")) {
+      if (card.parentElement.classList.contains("bili-feed-card")) {
         // 如果父元素是feed-card
         card = card.parentElement; // 获取父元素
+        if (card.parentElement.classList.contains("feed-card")) {
+          card = card.parentElement; // 获取父元素
+        }
       }
     }
     if (!blockedCards.has(card)) {
       blockedCards.add(card); // 将卡片添加到已屏蔽列表
+      if (globalConfig.flagKirby) {
+        addKirbyOverlay(card); // 添加遮罩层
+      }
     }
     if (!isShowAll) {
-      card.style.display = "none"; // 隐藏卡片
+      if (!globalConfig.flagKirby) {
+        card.style.display = "none"; // 隐藏卡片
+      }
     }
   }
   /// 查找所有视频卡片
@@ -215,7 +217,14 @@
   function toggleShowAll() {
     isShowAll = !isShowAll;
     blockedCards.forEach((card) => {
-      card.style.display = isShowAll ? "block" : "none";
+      if(globalConfig.flagKirby)
+      {
+        card.querySelector("#bilibili-blacklist-kirby").style.display = isShowAll ? "none" : "block";
+      }
+      else
+      {
+        card.style.display = isShowAll ? "block" : "none";
+      }
     });
     btnTempUnblock.textContent = isShowAll ? "恢复屏蔽" : "取消屏蔽";
     btnTempUnblock.style.background = isShowAll ? "#dddddd" : "#fb7299";
@@ -723,6 +732,45 @@
       tNameList.appendChild(empty);
     }
   }
+  // 工具函数：创建一个开关按钮
+  function createToggleButton(labelText, configKey, title = null) {
+    const container = document.createElement("div");
+    container.style.display = "flex";
+    container.style.alignItems = "center";
+    container.style.marginBottom = "8px";
+    container.style.gap = "8px";
+    container.title = title;
+    const label = document.createElement("span");
+    label.textContent = labelText;
+    label.style.flex = "1";
+
+    const button = document.createElement("button");
+    button.style.padding = "6px 12px";
+    button.style.border = "none";
+    button.style.borderRadius = "4px";
+    button.style.cursor = "pointer";
+    button.style.color = "#fff";
+
+    function refreshButtonAppearance() {
+      button.textContent = globalConfig[configKey] ? "开启" : "关闭";
+      button.style.backgroundColor = globalConfig[configKey]
+        ? "#fb7299"
+        : "#909399";
+    }
+
+    button.addEventListener("click", () => {
+      globalConfig[configKey] = !globalConfig[configKey];
+      refreshButtonAppearance();
+      saveGlobalConfig(); // 你可以实现此函数，将globalConfig存储到localStorage或其他
+    });
+
+    refreshButtonAppearance();
+
+    container.appendChild(label);
+    container.appendChild(button);
+
+    return container;
+  }
   // 更新配置列表
   function refreshConfigSettings() {
     if (!configList) return;
@@ -757,47 +805,7 @@
     title.style.marginBottom = "12px";
     configList.appendChild(title);
 
-    // 工具函数：创建一个开关按钮
-    function createToggleButton(labelText, configKey, title = null) {
-      const container = document.createElement("div");
-      container.style.display = "flex";
-      container.style.alignItems = "center";
-      container.style.marginBottom = "8px";
-      container.style.gap = "8px";
-      container.title = title;
-      const label = document.createElement("span");
-      label.textContent = labelText;
-      label.style.flex = "1";
-
-      const button = document.createElement("button");
-      button.style.padding = "6px 12px";
-      button.style.border = "none";
-      button.style.borderRadius = "4px";
-      button.style.cursor = "pointer";
-      button.style.color = "#fff";
-
-      function refreshButtonAppearance() {
-        button.textContent = globalConfig[configKey] ? "开启" : "关闭";
-        button.style.backgroundColor = globalConfig[configKey]
-          ? "#fb7299"
-          : "#909399";
-      }
-
-      button.addEventListener("click", () => {
-        globalConfig[configKey] = !globalConfig[configKey];
-        refreshButtonAppearance();
-        saveGlobalConfig(); // 你可以实现此函数，将globalConfig存储到localStorage或其他
-      });
-
-      refreshButtonAppearance();
-
-      container.appendChild(label);
-      container.appendChild(button);
-
-      return container;
-    }
-
-    // 创建3个开关
+    // 创建开关
     configList.appendChild(
       createToggleButton("屏蔽标题/Up主名", "flagInfo", "屏蔽标题/Up主名")
     );
@@ -810,7 +818,9 @@
     configList.appendChild(
       createToggleButton("屏蔽主页视频软广", "flagCM", "cm.bilibili.com软广")
     );
-
+    configList.appendChild(
+      createToggleButton("遮挡被屏蔽视频", "flagKirby", "更加温和的方式")
+    );
     // 处理队列请求间隔
     const intervalContainer = document.createElement("div");
     intervalContainer.style.display = "flex";
@@ -1254,6 +1264,59 @@
         </svg>
     `;
   }
+  // 添加卡比覆盖图层到指定卡片上
+  function addKirbyOverlay(card, invert = false) {
+    const kirbyWrapper = document.createElement("div");
+    if (card.querySelector("#bilibili-blacklist-kirby") != null) return;
+    kirbyWrapper.innerHTML = getKirbySVG();
+    kirbyWrapper.id = "bilibili-blacklist-kirby";
+    // 设置整体遮罩样式（背景 + 毛玻璃）
+    const justifyContent = isVideoPage() ? "flex-start" : "center";
+    const alignItems = isVideoPage() ? "flex-start" : "center";
+    Object.assign(kirbyWrapper.style, {
+      position: "absolute",
+      top: "0",
+      left: "0",
+      width: "100%",
+      height: "100%",
+      pointerEvents: "none",
+      display: "flex",
+      justifyContent:  `${justifyContent}`,
+      alignItems:  `${alignItems}`,
+      zIndex: "10",
+      backgroundColor: "rgba(255, 255, 255, 0.5)", // 背景
+      backdropFilter: "blur(2px)",
+      WebkitBackdropFilter: "blur(2px)",
+      borderRadius: "inherit",
+      border: "1px solid rgba(255, 255, 255, 0.5)",
+    });
+
+    const svg = kirbyWrapper.querySelector("svg");
+    if (svg) {
+      const cardRect = card.getBoundingClientRect();
+      const size = Math.min(cardRect.width, cardRect.height) * 1.0;
+      svg.setAttribute("width", `${size}px`);
+      svg.setAttribute("height", `${size}px`);
+      svg.setAttribute("bottom", `${cardRect.height - size}px`);
+      // 设置卡比图标本身样式（可反色 + 半透明）
+      svg.style.opacity = "0.15"; // 仅图标本体半透明
+      svg.style.filter = invert ? "invert(1)" : "none";
+      if(isVideoPage())
+      {
+        svg.style.marginTop = "-10px"; 
+      }
+      else{
+        svg.style.marginTop = "-40px";
+      }
+    }
+
+    const cardStyle = getComputedStyle(card);
+    if (cardStyle.position === "static" || !cardStyle.position) {
+      card.style.position = "relative";
+    }
+
+    card.appendChild(kirbyWrapper);
+  }
   //#endregion
   //##########################
 
@@ -1338,6 +1401,7 @@
   let isInit = false; // 是否已经初始化
   function init() {
     // 重置状态
+    //if (isInit) return;
     isBlocking = false;
     lastBlockTime = 0;
     blockedCards = new Set(); // 使用 Set 存储已屏蔽的卡片
@@ -1362,6 +1426,7 @@
     BlockCard(); // 初始化时立即执行屏蔽
     addBlacklistManagerButton(); // 添加黑名单管理按钮
     createBlacklistPanel();
+    isInit = true;
     console.log("[bilibili-blacklist] 脚本已加载🥔");
   }
   // 监听页面加载完成事件
@@ -1495,7 +1560,8 @@
     ];
     adSelectors.forEach((selector) => {
       document.querySelectorAll(selector).forEach((adCard) => {
-        adCard.remove();
+        //adCard.remove();
+        hideCard(adCard);
       });
     });
   }
@@ -1514,7 +1580,8 @@
 
     adSelectors.forEach((selector) => {
       document.querySelectorAll(selector).forEach((adCard) => {
-        adCard.remove();
+        //adCard.remove();
+        hideCard(adCard);
       });
     });
   }
