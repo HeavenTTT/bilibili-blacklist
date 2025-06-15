@@ -48,7 +48,8 @@
     flagTName: true,
     flagCM: true,
     flagKirby: false,
-    processQueueInterval: 500, // 单位 ms
+    processQueueInterval: 500, // 单位 ms，处理单个卡片间的延迟
+    blockScanInterval: 200, // 单位 ms，BlockCard扫描新卡片的间隔
   });
   // 保存黑名单到存储
   function saveBlacklists() {
@@ -65,8 +66,8 @@
   }
   //#region 核心功能 - 屏蔽视频卡片
   let isShowAll = false; // 是否显示全部视频卡片
-  let isBlocking = false; // 是否正在执行屏蔽操作
-  let lastBlockTime = 0; // 上次执行屏蔽的时间戳
+  let isBlocking = false; // 是否正在执行BlockCard扫描操作
+  let lastBlockExecutionTime = 0; // 上次执行BlockCard扫描的时间戳
   let blockedCards = new Set(); // 存储已屏蔽的视频卡片元素
   let processedCards = new WeakSet(); // 记录已处理过的卡片(避免重复处理，包括 UP主/标题检查和 tname 获取)
   let cardProcessQueue = new Set(); // 存储待处理的卡片，用于统一的队列处理
@@ -82,11 +83,10 @@
         // 创建屏蔽按钮
         if (isVideoPage()) {
           // 如果是视频页面
-            const blockButton = createBlockButton(upName, card);
-            card.querySelector(".card-box").style.position = "relative";
-            card.querySelector(".card-box").appendChild(container);
-            container.appendChild(blockButton);
-          
+          const blockButton = createBlockButton(upName, card);
+          card.querySelector(".card-box").style.position = "relative";
+          card.querySelector(".card-box").appendChild(container);
+          container.appendChild(blockButton);
         } else if (isCategoryPage()) {
           // 如果是分类页面
           const blockButton = createBlockButton(upName, card); // 创建屏蔽按钮
@@ -106,14 +106,11 @@
     card = getRealBlockCard(card);
     if (!blockedCards.has(card)) {
       blockedCards.add(card); // 将卡片添加到已屏蔽列表
-      if (globalConfig.flagKirby) {
-        addKirbyOverlay(card); // 添加遮罩层
-      }
     }
-    if (!isShowAll) {
-      if (!globalConfig.flagKirby) {
-        card.style.display = "none"; // 隐藏卡片
-      }
+    if (globalConfig.flagKirby) {
+      addKirbyOverlay(card); // 添加遮罩层
+    } else {
+      card.style.display = "none"; // 隐藏卡片
     }
   }
   function getRealBlockCard(card) {
@@ -140,11 +137,16 @@
   /// 屏蔽视频卡片
   function BlockCard() {
     const now = Date.now();
-    if (isBlocking || now - lastBlockTime < 1000) {
+    // 降低 BlockCard 的调用频率，但确保它能及时捕捉新卡片
+    if (
+      isBlocking ||
+      now - lastBlockExecutionTime < globalConfig.blockScanInterval
+    ) {
       return;
     }
     isBlocking = true;
-    lastBlockTime = now;
+    lastBlockExecutionTime = now; // 记录本次执行时间
+
     try {
       let cards = null;
       if (isMainPage()) {
@@ -159,8 +161,28 @@
 
       cards.forEach((card) => {
         if (processedCards.has(card)) {
-          return; // 如果卡片已经处理过，则跳过
+          return; // 如果卡片已经完全处理过，则跳过
         }
+
+        // --- 立即隐藏卡片的逻辑移动到这里 ---
+        // 只有当 isShowAll 为 false 时才进行隐藏操作
+        const realCard = getRealBlockCard(card);
+        if (!isShowAll) {
+          if (globalConfig.flagKirby) {
+            addKirbyOverlay(card); // 卡比模式下添加遮罩
+            realCard.style.display = "block"; // 确保卡片本身是显示的
+          } else {
+            realCard.style.display = "none"; // 非卡比模式下直接隐藏
+          }
+        }
+        // --- 立即隐藏卡片的逻辑结束 ---
+
+        // 获取UP主和标题信息，并添加屏蔽按钮容器
+        const { upName, title } = GetVideoInfo(card);
+        if (upName && title) {
+          cardAddBlockcContainer(upName, card); // 添加屏蔽按钮容器
+        }
+
         cardProcessQueue.add(card); // 将卡片添加到统一处理队列
       });
 
@@ -215,9 +237,15 @@
   function toggleShowAll() {
     isShowAll = !isShowAll;
     blockedCards.forEach((card) => {
+      // 这里的 card 已经是 getRealBlockCard 后的元素
       if (globalConfig.flagKirby) {
-        card.querySelector("#bilibili-blacklist-kirby").style.display =
-          isShowAll ? "none" : "block";
+        // 如果是卡比模式，切换遮罩的显示/隐藏
+        const kirbyOverlay = card.querySelector("#bilibili-blacklist-kirby");
+        if (kirbyOverlay) {
+          kirbyOverlay.style.display = isShowAll ? "none" : "block";
+        }
+        // 确保卡片本身是显示的
+        card.style.display = "block";
       } else {
         card.style.display = isShowAll ? "block" : "none";
       }
@@ -301,7 +329,8 @@
     } catch (e) {
       console.error("[bilibili-blacklist] 移除黑名单出错:", e);
     } finally {
-      //BlockCard(); // 重新执行 BlockCard 重新检查所有卡片
+      // 刷新后通常页面会重新渲染，所以这里不立即调用 BlockCard
+      // 而是依赖 MutationObserver 再次触发
     }
   }
   function addToTNameBlacklist(tname, cardElement = null) {
@@ -328,6 +357,7 @@
         tNameBlacklist.splice(index, 1);
         saveBlacklists();
         refreshTagNameList();
+        // BlockCard(); // 重新执行 BlockCard 重新检查所有卡片
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 移除标签黑名单出错:", e);
@@ -348,8 +378,8 @@
       } else {
         //判断链接是不是cm.bilili
         if (link.match(/cm.bilibili.com/) && globalConfig.flagCM) {
-          hideCard(card);
-          return null;
+          hideCard(card); // 这里直接隐藏广告卡片
+          return null; // 广告卡片不获取 BV 号
         }
         const bv = link.match(/BV\w+/);
         return bv ? bv[0] : null;
@@ -413,28 +443,44 @@
         continue;
       }
 
+      let shouldHide = false; // 标记卡片是否应该被隐藏
+
       // 阶段1: UP主和标题的初步处理
       const { upName, title } = GetVideoInfo(card);
       if (upName && title) {
-        cardAddBlockcContainer(upName, card); // 添加屏蔽按钮容器
+        // cardAddBlockcContainer(upName, card) 已在 BlockCard 中调用
         if (isBlacklisted(upName, title) && globalConfig.flagInfo) {
-          hideCard(card);
+          shouldHide = true;
         }
       } else {
-        // 如果没有 UP主或标题信息，暂时不标记为完全处理，可能需要后续观察DOM
-        // Devlog("未找到UP主名称或视频标题，跳过初步屏蔽判断:", card);
+        // 如果无法获取UP主或标题信息，对于一些特殊卡片（如广告等），
+        // 仍然需要考虑隐藏，如果 getCardBv 返回 null 且 flagCM 为 true，
+        // 那么 hideCard 会在 getCardBv 内部被调用，这里可以跳过 tname 检查
+        // 为了严谨性，这里可以再添加一个判断：如果 card 已经被 hideCard 隐藏了，那么 shouldHide 应该为 true
+        if (
+          getRealBlockCard(card).style.display === "none" &&
+          !globalConfig.flagKirby
+        ) {
+          shouldHide = true;
+        } else if (
+          getRealBlockCard(card).querySelector("#bilibili-blacklist-kirby")
+        ) {
+          shouldHide = true; // 如果已经有Kirby遮罩，说明可能被隐藏了
+        }
       }
 
       // 阶段2: TName 的异步获取和处理 (如果启用)
-      if (globalConfig.flagTName) {
+      // 如果卡片已经被UP主/标题屏蔽（或者因为是广告而隐藏），则无需再获取tname
+      if (globalConfig.flagTName && !shouldHide) {
         const bv = getCardBv(card);
+        // 只有当有 BV 号且尚未添加 tname group 时才请求 API
         if (bv && !card.querySelector(".bilibili-blacklist-tname-group")) {
-          // 只有当有 BV 号且尚未添加 tname group 时才请求 API
           const data = await getBilibiliVideoAPI(bv);
           if (data) {
             const container = card.querySelector(
               ".bilibili-blacklist-block-container"
             );
+            // 只有当容器存在时才添加 tname group
             if (container) {
               const tnameGroup = document.createElement("div");
               tnameGroup.className = "bilibili-blacklist-tname-group";
@@ -459,10 +505,27 @@
             }
 
             if (isCardBlacklistTName(card)) {
-              hideCard(card);
+              shouldHide = true;
             }
           }
         }
+      }
+
+      // 最终根据 shouldHide 决定卡片的可见性
+      if (shouldHide) {
+        hideCard(card); // 隐藏卡片 (会添加到 blockedCards，并根据 kirby 配置添加遮罩或设置 display: none)
+      } else {
+        // 如果最终不屏蔽，则显示卡片
+        const realCardToDisplay = getRealBlockCard(card);
+        if (blockedCards.has(realCardToDisplay)) {
+          // 如果之前因为初步判断被隐藏，现在又被判断为不需要屏蔽，则从blockedCards移除
+          blockedCards.delete(realCardToDisplay);
+        }
+        if (globalConfig.flagKirby) {
+          removeKirbyOverlay(card); // 移除Kirby遮罩
+        }
+        // 确保卡片是可见的
+        realCardToDisplay.style.display = "block";
       }
 
       // 标记为已完全处理
@@ -471,6 +534,7 @@
       await sleep(globalConfig.processQueueInterval || 100);
     }
     isProcessingCardQueue = false;
+    refreshBlockCountDisplay(); // 处理结束后更新屏蔽计数
   }
 
   function sleep(ms) {
@@ -528,9 +592,7 @@
   // 在右侧导航栏添加黑名单管理按钮
   let blockCountDiv = null;
   function addBlacklistManagerButton() {
-    if (isVideoPage()) {
-      //return;
-    }
+
     const rightEntry = document.querySelector(".right-entry");
     if (!rightEntry) {
       console.warn("[bilibili-blacklist] 未找到右侧导航栏");
@@ -808,6 +870,52 @@
     configList.appendChild(
       createToggleButton("遮挡被屏蔽视频", "flagKirby", "更加温和的方式")
     );
+
+    // BlockCard 扫描间隔
+    const blockScanIntervalContainer = document.createElement("div");
+    blockScanIntervalContainer.style.display = "flex";
+    blockScanIntervalContainer.style.alignItems = "center";
+    blockScanIntervalContainer.style.marginTop = "16px";
+    blockScanIntervalContainer.style.gap = "8px";
+    blockScanIntervalContainer.title =
+      "扫描新卡片的间隔时间，单位 ms。值越小，新卡片隐藏越快。";
+
+    const blockScanIntervalLabel = document.createElement("span");
+    blockScanIntervalLabel.textContent = "卡片扫描间隔 (ms):";
+    blockScanIntervalLabel.style.flex = "1";
+
+    const blockScanIntervalInput = document.createElement("input");
+    blockScanIntervalInput.type = "number";
+    blockScanIntervalInput.min = "0";
+    blockScanIntervalInput.value = globalConfig.blockScanInterval;
+    blockScanIntervalInput.style.width = "100px";
+    blockScanIntervalInput.style.padding = "6px";
+    blockScanIntervalInput.style.border = "1px solid #ddd";
+    blockScanIntervalInput.style.borderRadius = "4px";
+
+    const saveBlockScanIntervalBtn = document.createElement("button");
+    saveBlockScanIntervalBtn.textContent = "保存";
+    saveBlockScanIntervalBtn.style.padding = "6px 12px";
+    saveBlockScanIntervalBtn.style.backgroundColor = "#fb7299";
+    saveBlockScanIntervalBtn.style.color = "#fff";
+    saveBlockScanIntervalBtn.style.border = "none";
+    saveBlockScanIntervalBtn.style.borderRadius = "4px";
+    saveBlockScanIntervalBtn.style.cursor = "pointer";
+
+    saveBlockScanIntervalBtn.addEventListener("click", () => {
+      const val = parseInt(blockScanIntervalInput.value, 10);
+      if (!isNaN(val) && val >= 0) {
+        globalConfig.blockScanInterval = val;
+        saveGlobalConfig();
+      } else {
+        alert("请输入有效的非负数字！");
+      }
+    });
+    blockScanIntervalContainer.appendChild(blockScanIntervalLabel);
+    blockScanIntervalContainer.appendChild(blockScanIntervalInput);
+    blockScanIntervalContainer.appendChild(saveBlockScanIntervalBtn);
+    configList.appendChild(blockScanIntervalContainer);
+
     // 处理队列请求间隔
     const intervalContainer = document.createElement("div");
     intervalContainer.style.display = "flex";
@@ -815,10 +923,10 @@
     intervalContainer.style.marginTop = "16px";
     intervalContainer.style.gap = "8px";
     intervalContainer.title =
-      "请求API间隔时间，间隔时间越长，屏蔽越快，请求频繁可以会被临时ban，建议值 100ms";
+      "处理队列中单个视频卡片时的API请求间隔时间，单位 ms。间隔时间越长，越不容易触发B站API限速。建议值 100ms。";
 
     const intervalLabel = document.createElement("span");
-    intervalLabel.textContent = "视频分类-处理队列请求间隔 (ms):";
+    intervalLabel.textContent = "卡片处理间隔 (ms):";
 
     intervalLabel.style.flex = "1";
 
@@ -877,7 +985,6 @@
   }
   // 创建黑名单面板
   function createBlacklistPanel() {
-    //if(isVideoPage()) return;
     if (isBlacklistPanelCreated()) {
       return;
     }
@@ -1226,7 +1333,7 @@
         .bilibili-blacklist-grayscale {
            filter: grayscale(95%);
         }
-
+       
 
     `);
   //可爱的卡比图标
@@ -1313,7 +1420,6 @@
   //##########################
 
   //#region 观察者
-  let obsTimeout = 1000;
   // MutationObserver 检测动态加载的新内容（仅当节点可见时才触发）
   const observer = new MutationObserver((mutations) => {
     let shouldCheck = false;
@@ -1343,28 +1449,24 @@
       });
     }
 
-    // 如果有可见的新内容，延迟 1 秒后执行屏蔽（确保 DOM 完全渲染）
+    // 如果有新内容，延迟后执行 BlockCard。
+    // 使用 setTimeout 确保 DOM 稳定后再扫描，并结合 `blockScanInterval` 控制频率
     if (shouldCheck) {
-      // processedCards = new WeakSet(); // 不再在这里重置，因为 BlockCard 会将新卡片添加到队列
+      // 如果当前有大量卡片在队列中等待处理，或者 BlockCard 正在运行，可以考虑不立即触发新的扫描
+      // 这里的 `isBlocking` 已经通过 `lastBlockExecutionTime` 进行了控制
       setTimeout(() => {
-        BlockCard(); // 触发 BlockCard 将新卡片添加到队列
-        //addBlacklistManagerButton(); // 确保每次都添加黑名单管理按钮
+        BlockCard(); // 触发 BlockCard 将新卡片添加到队列并立即隐藏
         if (isMainPage()) {
           BlockMainAD(); // 屏蔽页面广告
         }
         if (isVideoPage()) {
           BlockVideoPageAd(); // 屏蔽视频页面广告
         }
+        // 确保黑名单管理按钮存在
         if (!document.getElementById("bilibili-blacklist-manager")) {
           addBlacklistManagerButton();
         }
-
-        if (obsTimeout <= 10) {
-          obsTimeout = 10; // 设置最小超时时间
-        } else {
-          obsTimeout /= 2; // 递减超时时间
-        }
-      }, obsTimeout);
+      }, globalConfig.blockScanInterval); // 使用配置的扫描间隔
     }
   });
 
@@ -1375,6 +1477,7 @@
       document.getElementById(container) ||
       document.querySelector(container) ||
       document.documentElement; // 回退到整个文档
+
     if (rootNode) {
       observer.observe(rootNode, {
         childList: true, // 监视添加/移除的节点
@@ -1383,7 +1486,7 @@
       return true;
     } else {
       // 如果没找到根节点则重试
-      setTimeout(() => initObserver(container), 5000);
+      setTimeout(() => initObserver(container), 500);
       console.warn("[bilibili-blacklist] 未找到根节点，正在重试...");
       observerError++;
 
@@ -1396,15 +1499,15 @@
   //#endregion
   //#region 初始化函数
 
-
   function init() {
     // 重置状态
     //if (isInit) return;
     isBlocking = false;
-    lastBlockTime = 0;
+    lastBlockExecutionTime = 0;
     blockedCards = new Set(); // 使用 Set 存储已屏蔽的卡片
-    // processedCards 不在这里重置，因为它跟踪所有已处理过的卡片
     cardProcessQueue = new Set(); // 初始化时清空队列
+    processedCards = new WeakSet(); // 初始化时清空已处理卡片
+
     if (isMainPage()) {
       initMainPage(); // 初始化主页
       BlockMainAD(); // 屏蔽主页广告
