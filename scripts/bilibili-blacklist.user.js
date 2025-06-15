@@ -763,7 +763,7 @@
     button.addEventListener("click", () => {
       globalConfig[configKey] = !globalConfig[configKey];
       refreshButtonAppearance();
-      saveGlobalConfig(); // 你可以实现此函数，将globalConfig存储到localStorage或其他
+      saveGlobalConfig();
     });
 
     refreshButtonAppearance();
