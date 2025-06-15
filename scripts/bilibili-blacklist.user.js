@@ -53,10 +53,12 @@
     flagAD: true, // 启用/禁用屏蔽一般广告
     flagTName: true, // 启用/禁用按标签名屏蔽（需要API调用）
     flagCM: true, // 启用/禁用屏蔽cm.bilibili.com软广
-    flagKirby: false, // 启用/禁用被屏蔽视频的卡比覆盖模式
-    processQueueInterval: 500, // 处理队列中单个卡片的延迟时间（毫秒）
+    flagKirby: true, // 启用/禁用被屏蔽视频的卡比覆盖模式
+    processQueueInterval: 200, // 处理队列中单个卡片的延迟时间（毫秒）
     blockScanInterval: 200, // BlockCard扫描新卡片的间隔时间（毫秒）
     flagHideOnLoad: true, // 启用/禁用页面加载时自动隐藏
+    flagVertical: true, // 启用/禁用屏蔽竖屏视频
+    verticalScaleThreshold: 0.7 || 0.7, // 竖屏视频的宽高比阈值（0-1）
   });
 
   // UI元素（稍后初始化）
@@ -79,6 +81,12 @@
   let isVideoCardQueueProcessing = false; // 是否正在处理队列
   let isPageCurrentlyActive = true; // 页面是否可见
   let observerRetryCount = 0; // 观察器重试计数
+  let countBlockInfo = 0; // 已屏蔽视频计数
+  let countBlockAD = 0; // 已屏蔽广告计数
+  let countBlockTName = 0; // 已屏蔽标签名计数
+  let countBlockCM = 0; // 已屏蔽cm.bilibili.com软广计数
+
+  // 用于不同页面URL选择器
 
   // 用于不同页面UP主名称选择器
   const UP_NAME_SELECTORS = [
@@ -147,12 +155,39 @@
   /**
    * 隐藏给定的视频卡片。
    * @param {HTMLElement} cardElement - 要隐藏的视频卡片元素。
+   * @param {string} tpye - 隐藏类型，默认为"info"。
+   * @returns {void}
+   *
    */
-  function hideVideoCard(cardElement) {
+  function hideVideoCard(cardElement, type = "none") {
     const realCardToBlock = getRealVideoCardElement(cardElement);
     if (!blockedVideoCards.has(realCardToBlock)) {
       blockedVideoCards.add(realCardToBlock);
+    } else {
+      return;
     }
+    if (!realCardToBlock) {
+      console.warn(
+        "[bililili-blacklist] hideVideoCard: realCardToBlock is null"
+      );
+      return;
+    }
+    if (type === "info") {
+      countBlockInfo++;
+    }
+    if (type === "ad") {
+      countBlockAD++;
+    }
+    if (type === "tname") {
+      countBlockTName++;
+    }
+    if (type === "cm") {
+      countBlockCM++;
+    }
+    if (type === "vertical") {
+      countBlockTName++;
+    }
+    //console.log(tpye);
 
     if (globalPluginConfig.flagKirby) {
       addKirbyOverlayToCard(cardElement);
@@ -225,25 +260,24 @@
         if (processedVideoCards.has(card)) {
           return;
         }
-
-        // --- 根据 flagHideOnLoad 开关决定是否立即隐藏卡片 ---
-        const realCard = getRealVideoCardElement(card);
-        if (globalPluginConfig.flagHideOnLoad && !isShowAllVideos) {
-          // 只有在“显示全部”模式关闭时才执行
-          if (globalPluginConfig.flagKirby) {
-            addKirbyOverlayToCard(card); // 卡比模式下添加遮罩
-            realCard.style.display = "block"; // 确保卡片本身是显示的
-          } else {
-            realCard.style.display = "none"; // 非卡比模式下直接隐藏
-          }
-        }
-        // --- 立即隐藏卡片的逻辑结束 ---
-
         const { upName, videoTitle } = getVideoCardInfo(card);
         // 如果获取到UP主名称和视频标题，则添加屏蔽按钮
         if (upName && videoTitle) {
           addBlockContainerToCard(upName, card);
+
+          // --- 根据 flagHideOnLoad 开关决定是否立即隐藏卡片 ---
+          const realCard = getRealVideoCardElement(card);
+          if (globalPluginConfig.flagHideOnLoad && !isShowAllVideos) {
+            // 只有在“显示全部”模式关闭时才执行
+            if (globalPluginConfig.flagKirby) {
+              addKirbyOverlayToCard(card); // 卡比模式下添加遮罩
+              realCard.style.display = "block"; // 确保卡片本身是显示的
+            } else {
+              realCard.style.display = "none"; // 非卡比模式下直接隐藏
+            }
+          }
         }
+        // --- 立即隐藏卡片的逻辑结束 ---
 
         // 将卡片添加到处理队列
         videoCardProcessQueue.add(card);
@@ -453,28 +487,38 @@
   //#endregion
 
   //#region 视频数据获取
+  /**
+   * 获取视频卡片的链接。
+   * @param {HTMLElement} cardElement - 视频卡片元素。
+   * @returns {string|null} 视频链接，如果未找到则返回null。
+   */
+  function getCardHrefLink(cardElement) {
+    const hrefLink = cardElement.querySelector("a");
+    if (hrefLink) {
+      return hrefLink.getAttribute("href");
+    }
+    return null;
+  }
 
+  function checkLinkCM(link) {
+    if (!link) return false;
+    // 如果是cm.bilibili.com的链接，且启用了CM广告屏蔽，则隐藏卡片
+    if (link.match(/cm.bilibili.com/) && globalPluginConfig.flagCM) {
+      return true;
+    }
+    return false;
+  }
   /**
    * 从视频卡片的链接中提取BV ID。
    * 还处理cm.bilibili.com广告的屏蔽。
    * @param {HTMLElement} cardElement - 视频卡片元素。
    * @returns {string|null} BV ID，如果未找到/被屏蔽则返回null。
    */
-  function getCardBvId(cardElement) {
-    const bvElement = cardElement.querySelector("a");
-    if (!bvElement) {
-      return null;
-    }
+  function getLinkBvId(link) {
     try {
-      const link = bvElement.getAttribute("href");
       if (!link) {
         return null;
       } else {
-        // 如果是cm.bilibili.com的链接，且启用了CM广告屏蔽，则隐藏卡片
-        if (link.match(/cm.bilibili.com/) && globalPluginConfig.flagCM) {
-          hideVideoCard(cardElement);
-          return null;
-        }
         const bv = link.match(/BV\w+/);
         return bv ? bv[0] : null;
       }
@@ -552,12 +596,19 @@
       }
 
       let shouldHide = false;
-
+      let blockType = "none";
+      // 如果启用了标签屏蔽且当前卡片未被隐藏
+      const link = getCardHrefLink(card);
+      if (checkLinkCM(link)) {
+        shouldHide = true;
+        blockType = "cm";
+      }
       const { upName, videoTitle } = getVideoCardInfo(card);
-      if (upName && videoTitle) {
+      if (upName && videoTitle && !shouldHide) {
         // 如果UP主名称或标题在黑名单中，且启用了信息屏蔽
         if (isBlacklisted(upName, videoTitle) && globalPluginConfig.flagInfo) {
           shouldHide = true;
+          blockType = "info";
         }
       } else {
         // 如果无法获取UP主名称和标题，但卡片已被隐藏或有Kirby覆盖，则也认为应该隐藏
@@ -575,9 +626,11 @@
         }
       }
 
-      // 如果启用了标签屏蔽且当前卡片未被隐藏
-      if (globalPluginConfig.flagTName && !shouldHide) {
-        const bvId = getCardBvId(card);
+      if (
+        (globalPluginConfig.flagTName || globalPluginConfig.flagVertical) &&
+        !shouldHide
+      ) {
+        const bvId = getLinkBvId(link);
         // 如果存在BV ID且卡片尚未添加标签组
         if (bvId && !card.querySelector(".bilibili-blacklist-tname-group")) {
           const data = await getBilibiliVideoApiData(bvId);
@@ -610,13 +663,27 @@
 
             if (isCardBlacklistedByTagName(card)) {
               shouldHide = true;
+              blockType = "tname";
+            }
+            // 如果启用了垂直视频屏蔽
+            if (
+              data.dimension.width &&
+              data.dimension.height &&
+              !shouldHide &&
+              globalPluginConfig.flagVertical
+            ) {
+              const dimension = data.dimension.width / data.dimension.height;
+              if (dimension < globalPluginConfig.verticalScaleThreshold) {
+                shouldHide = true;
+                blockType = "vertical";
+              }
             }
           }
         }
       }
 
       if (shouldHide) {
-        hideVideoCard(card);
+        hideVideoCard(card, blockType);
       } else {
         const realCardToDisplay = getRealVideoCardElement(card);
         if (blockedVideoCards.has(realCardToDisplay)) {
@@ -712,9 +779,11 @@
     if (!rightEntry) {
       console.warn("[bilibili-blacklist] 未找到右侧导航栏");
       return;
-    } else if (!rightEntry.querySelector("#bilibili-blacklist-manager")) {
+    } else if (
+      !rightEntry.querySelector("#bilibili-blacklist-manager-button")
+    ) {
       const listItem = document.createElement("li");
-      listItem.id = "bilibili-blacklist-manager";
+      listItem.id = "bilibili-blacklist-manager-button";
       listItem.style.cursor = "pointer";
       listItem.className = "v-popover-wrap";
 
@@ -762,8 +831,9 @@
     if (blockCountDisplayElement) {
       blockCountDisplayElement.textContent = `${blockedVideoCards.size}`;
     }
+    countBlockInfo;
     if (blockCountTitleElement) {
-      blockCountTitleElement.textContent = `已屏蔽视频 (${blockedVideoCards.size})`;
+      blockCountTitleElement.textContent = `已屏蔽视频 (${blockedVideoCards.size} = ${countBlockInfo} + ${countBlockAD} + ${countBlockCM} + ${countBlockTName})`;
     }
   }
 
@@ -959,7 +1029,53 @@
 
     return container;
   }
+  // 辅助函数：为设置创建输入文本
+  function createSettingInput(labelText, configKey, title = null) {
+    // 卡片扫描间隔设置
+    const Container = document.createElement("div");
+    Container.style.display = "flex";
+    Container.style.alignItems = "center";
+    Container.style.marginTop = "16px";
+    Container.style.gap = "8px";
+    Container.title = title;
 
+    const Label = document.createElement("span");
+    Label.textContent = labelText;
+    Label.style.flex = "1";
+
+    const Input = document.createElement("input");
+    Input.type = "number";
+    Input.min = "0";
+    Input.value = globalPluginConfig[configKey];
+    Input.style.width = "100px";
+    Input.style.padding = "6px";
+    Input.style.border = "1px solid #ddd";
+    Input.style.borderRadius = "4px";
+
+    const Button = document.createElement("button");
+    Button.textContent = "保存";
+    Button.style.padding = "6px 12px";
+    Button.style.backgroundColor = "#fb7299";
+    Button.style.color = "#fff";
+    Button.style.border = "none";
+    Button.style.borderRadius = "4px";
+    Button.style.cursor = "pointer";
+
+    Button.addEventListener("click", () => {
+      const val = parseFloat(Input.value, 10);
+      if (!isNaN(val) && val >= 0) {
+        globalPluginConfig[configKey] = val;
+        saveGlobalConfigToStorage();
+      } else {
+        alert("请输入有效的非负数字！");
+      }
+    });
+    Container.appendChild(Label);
+    Container.appendChild(Input);
+    Container.appendChild(Button);
+
+    return Container;
+  }
   /**
    * 刷新面板中的配置设置显示。
    */
@@ -1027,6 +1143,13 @@
       )
     );
     configListElement.appendChild(
+      createSettingToggleButton(
+        "屏蔽竖屏视频",
+        "flagVertical",
+        "通过请求API获取视频分辨率"
+      )
+    );
+    configListElement.appendChild(
       createSettingToggleButton("屏蔽主页推荐", "flagAD", "直播/广告/分区推送")
     );
     configListElement.appendChild(
@@ -1036,6 +1159,14 @@
         "cm.bilibili.com软广"
       )
     );
+
+    //分割线
+    const hr = document.createElement("hr");
+    hr.style.margin = "12px 0";
+    hr.style.border = "none";
+    hr.style.borderTop = "2px solid #ddd";
+    configListElement.appendChild(hr);
+
     configListElement.appendChild(
       createSettingToggleButton("遮挡被屏蔽视频", "flagKirby", "更加温和的方式")
     );
@@ -1046,96 +1177,29 @@
         "新卡片加载出来时是否立即隐藏，待处理完成后再决定显示或继续屏蔽。关闭此功能可能会导致卡片先显示后隐藏的闪烁。"
       )
     );
-    // 卡片扫描间隔设置
-    const blockScanIntervalContainer = document.createElement("div");
-    blockScanIntervalContainer.style.display = "flex";
-    blockScanIntervalContainer.style.alignItems = "center";
-    blockScanIntervalContainer.style.marginTop = "16px";
-    blockScanIntervalContainer.style.gap = "8px";
-    blockScanIntervalContainer.title =
-      "扫描新卡片的间隔时间，单位 ms。值越小，新卡片隐藏越快。";
 
-    const blockScanIntervalLabel = document.createElement("span");
-    blockScanIntervalLabel.textContent = "卡片扫描间隔 (ms):";
-    blockScanIntervalLabel.style.flex = "1";
+    configListElement.appendChild(
+      createSettingInput(
+        "卡片扫描间隔 (ms):",
+        "blockScanInterval",
+        "扫描新卡片的间隔时间，单位 ms。值越小，新卡片隐藏越快，但可能会增加CPU负担。建议值 200ms。"
+      )
+    );
 
-    const blockScanIntervalInput = document.createElement("input");
-    blockScanIntervalInput.type = "number";
-    blockScanIntervalInput.min = "0";
-    blockScanIntervalInput.value = globalPluginConfig.blockScanInterval;
-    blockScanIntervalInput.style.width = "100px";
-    blockScanIntervalInput.style.padding = "6px";
-    blockScanIntervalInput.style.border = "1px solid #ddd";
-    blockScanIntervalInput.style.borderRadius = "4px";
-
-    const saveBlockScanIntervalBtn = document.createElement("button");
-    saveBlockScanIntervalBtn.textContent = "保存";
-    saveBlockScanIntervalBtn.style.padding = "6px 12px";
-    saveBlockScanIntervalBtn.style.backgroundColor = "#fb7299";
-    saveBlockScanIntervalBtn.style.color = "#fff";
-    saveBlockScanIntervalBtn.style.border = "none";
-    saveBlockScanIntervalBtn.style.borderRadius = "4px";
-    saveBlockScanIntervalBtn.style.cursor = "pointer";
-
-    saveBlockScanIntervalBtn.addEventListener("click", () => {
-      const val = parseInt(blockScanIntervalInput.value, 10);
-      if (!isNaN(val) && val >= 0) {
-        globalPluginConfig.blockScanInterval = val;
-        saveGlobalConfigToStorage();
-      } else {
-        alert("请输入有效的非负数字！");
-      }
-    });
-    blockScanIntervalContainer.appendChild(blockScanIntervalLabel);
-    blockScanIntervalContainer.appendChild(blockScanIntervalInput);
-    blockScanIntervalContainer.appendChild(saveBlockScanIntervalBtn);
-    configListElement.appendChild(blockScanIntervalContainer);
-
-    // 卡片处理间隔设置
-    const processIntervalContainer = document.createElement("div");
-    processIntervalContainer.style.display = "flex";
-    processIntervalContainer.style.alignItems = "center";
-    processIntervalContainer.style.marginTop = "16px";
-    processIntervalContainer.style.gap = "8px";
-    processIntervalContainer.title =
-      "处理队列中单个视频卡片时的API请求间隔时间，单位 ms。间隔时间越长，越不容易触发B站API限速。建议值 100ms。";
-
-    const processIntervalLabel = document.createElement("span");
-    processIntervalLabel.textContent = "卡片处理间隔 (ms):";
-    processIntervalLabel.style.flex = "1";
-
-    const processIntervalInput = document.createElement("input");
-    processIntervalInput.type = "number";
-    processIntervalInput.min = "0";
-    processIntervalInput.value = globalPluginConfig.processQueueInterval;
-    processIntervalInput.style.width = "100px";
-    processIntervalInput.style.padding = "6px";
-    processIntervalInput.style.border = "1px solid #ddd";
-    processIntervalInput.style.borderRadius = "4px";
-
-    const saveProcessIntervalBtn = document.createElement("button");
-    saveProcessIntervalBtn.textContent = "保存";
-    saveProcessIntervalBtn.style.padding = "6px 12px";
-    saveProcessIntervalBtn.style.backgroundColor = "#fb7299";
-    saveProcessIntervalBtn.style.color = "#fff";
-    saveProcessIntervalBtn.style.border = "none";
-    saveProcessIntervalBtn.style.borderRadius = "4px";
-    saveProcessIntervalBtn.style.cursor = "pointer";
-
-    saveProcessIntervalBtn.addEventListener("click", () => {
-      const val = parseInt(processIntervalInput.value, 10);
-      if (!isNaN(val) && val >= 0) {
-        globalPluginConfig.processQueueInterval = val;
-        saveGlobalConfigToStorage();
-      } else {
-        alert("请输入有效的非负数字！");
-      }
-    });
-
-    processIntervalContainer.appendChild(processIntervalLabel);
-    processIntervalContainer.appendChild(processIntervalInput);
-    processIntervalContainer.appendChild(saveProcessIntervalBtn);
-    configListElement.appendChild(processIntervalContainer);
+    configListElement.appendChild(
+      createSettingInput(
+        "视频信息API请求间隔 (ms):",
+        "processQueueInterval",
+        "每个视频获取分类标签/视频分辨率时的API请求间隔时间，单位 ms。间隔时间越长，越不容易触发B站API限速。建议值 200ms。"
+      )
+    );
+    configListElement.appendChild(
+      createSettingInput(
+        "竖屏视频比例阈值:",
+        "verticalScaleThreshold",
+        "获取的视频API信息后，判断视频是否为竖屏（长 除于 宽）的阈值。建议值 0.7。"
+      )
+    );
   }
 
   /**
@@ -1265,6 +1329,7 @@
     blockCountTitleElement = document.createElement("h3");
     blockCountTitleElement.style.margin = "0";
     blockCountTitleElement.style.fontWeight = "500";
+    blockCountTitleElement.title = "总数 =(UP/标题 + 广告 + CM + 分类/竖屏)";
 
     const closeBtn = document.createElement("button");
     closeBtn.textContent = "×";
@@ -1511,10 +1576,10 @@
             opacity: 0.9;
         }
         /* 管理按钮悬停效果 */
-        #bilibili-blacklist-manager:hover svg {
+        #bilibili-blacklist-manager-button:hover svg {
             transform: scale(1.1);
         }
-        #bilibili-blacklist-manager svg {
+        #bilibili-blacklist-manager-button svg {
             transition: transform 0.2s;
         }
         /* 输入框聚焦效果 */
@@ -1663,7 +1728,7 @@
         if (isCurrentPageVideo()) {
           blockVideoPageAds(); // 视频页广告屏蔽
         }
-        if (!document.getElementById("bilibili-blacklist-manager")) {
+        if (!document.getElementById("bilibili-blacklist-manager-button")) {
           addBlacklistManagerButton(); // 确保管理按钮存在
         }
       }, globalPluginConfig.blockScanInterval);
@@ -1721,6 +1786,7 @@
       blockMainPageAds();
     } else if (isCurrentPageSearch()) {
       initializeSearchPage();
+      blockMainPageAds(); // 搜索页也进行主页广告屏蔽
     } else if (isCurrentPageVideo()) {
       initializeVideoPage();
     } else if (isCurrentPageCategory()) {
@@ -1917,7 +1983,7 @@
     ];
     adSelectors.forEach((selector) => {
       document.querySelectorAll(selector).forEach((adCard) => {
-        hideVideoCard(adCard); // 隐藏广告卡片
+        hideVideoCard(adCard, "ad"); // 隐藏广告卡片
       });
     });
   }
@@ -1939,7 +2005,7 @@
 
     adSelectors.forEach((selector) => {
       document.querySelectorAll(selector).forEach((adCard) => {
-        hideVideoCard(adCard); // 隐藏广告卡片
+        hideVideoCard(adCard, "ad"); // 隐藏广告卡片
       });
     });
   }
