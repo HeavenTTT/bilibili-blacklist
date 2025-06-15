@@ -99,6 +99,20 @@
   }
   //隐藏卡片
   function hideCard(card) {
+    card = getRealBlockCard(card);
+    if (!blockedCards.has(card)) {
+      blockedCards.add(card); // 将卡片添加到已屏蔽列表
+      if (globalConfig.flagKirby) {
+        addKirbyOverlay(card); // 添加遮罩层
+      }
+    }
+    if (!isShowAll) {
+      if (!globalConfig.flagKirby) {
+        card.style.display = "none"; // 隐藏卡片
+      }
+    }
+  }
+  function getRealBlockCard(card) {
     if (isSearchPage()) {
       // 如果是搜索页面 -> 隐藏父元素
       card = card.parentElement; // 获取父元素
@@ -113,17 +127,7 @@
         }
       }
     }
-    if (!blockedCards.has(card)) {
-      blockedCards.add(card); // 将卡片添加到已屏蔽列表
-      if (globalConfig.flagKirby) {
-        addKirbyOverlay(card); // 添加遮罩层
-      }
-    }
-    if (!isShowAll) {
-      if (!globalConfig.flagKirby) {
-        card.style.display = "none"; // 隐藏卡片
-      }
-    }
+    return card;
   }
   /// 查找所有视频卡片
   function querySelectorAllVideoCard(selector) {
@@ -149,10 +153,10 @@
         cards = querySelectorAllVideoCard(".bili-video-card");
       } else return; // 如果不是视频页面，则不执行屏蔽操作
       cards.forEach((card) => {
-        addButtontTNameQueue(card);
         if (processedCards.has(card)) {
           return; // 如果卡片已经处理过，则跳过
         }
+        addButtontTNameQueue(card);
         // 获取视频信息
         const { upName, title } = GetVideoInfo(card);
         if (upName && title) {
@@ -164,8 +168,10 @@
             // 如果在黑名单中，则隐藏卡片
             hideCard(card);
           }
-          if (isCardBlacklistTName(card) && globalConfig.flagTName) {
-            hideCard(card);
+          if (globalConfig.flagTName) {
+            if (isCardBlacklistTName(card)) {
+              hideCard(card);
+            }
           }
         } else {
           //console.warn("未找到UP主名称或视频标题，跳过屏蔽:", card);
@@ -217,12 +223,10 @@
   function toggleShowAll() {
     isShowAll = !isShowAll;
     blockedCards.forEach((card) => {
-      if(globalConfig.flagKirby)
-      {
-        card.querySelector("#bilibili-blacklist-kirby").style.display = isShowAll ? "none" : "block";
-      }
-      else
-      {
+      if (globalConfig.flagKirby) {
+        card.querySelector("#bilibili-blacklist-kirby").style.display =
+          isShowAll ? "none" : "block";
+      } else {
         card.style.display = isShowAll ? "block" : "none";
       }
     });
@@ -244,7 +248,7 @@
   function GetVideoInfo(card) {
     let upName = "";
     let title = "";
-    if (card.style.display === "none") return { upName, title }; // 如果卡片已被隐藏，则直接返回空信息
+    //if (card.style.display === "none") return { upName, title }; // 如果卡片已被隐藏，则直接返回空信息
     const upNameElement = card.querySelectorAll(selectorUpName.join(", ")); // 使用逗号分隔的选择器
     if (upNameElement.length > 0) {
       upName = upNameElement[0].textContent.trim(); // 获取第一个匹配到的元素的内容，并去除首尾空格
@@ -409,7 +413,6 @@
         await sleep(1000); // 每秒检查一次
         continue; // 不处理当前卡片，重新判断
       }
-
       const iterator = cardSequenceGetJson.values();
       const card = iterator.next().value;
       cardSequenceGetJson.delete(card);
@@ -435,7 +438,6 @@
         continue;
       }
       // 如果 card 已经处理过 tname group，跳过
-
       // 最终确认
       if (!card.querySelector(".bilibili-blacklist-tname-group")) {
         // 创建 tname group
@@ -1281,8 +1283,8 @@
       height: "100%",
       pointerEvents: "none",
       display: "flex",
-      justifyContent:  `${justifyContent}`,
-      alignItems:  `${alignItems}`,
+      justifyContent: `${justifyContent}`,
+      alignItems: `${alignItems}`,
       zIndex: "10",
       backgroundColor: "rgba(255, 255, 255, 0.5)", // 背景
       backdropFilter: "blur(2px)",
@@ -1301,11 +1303,9 @@
       // 设置卡比图标本身样式（可反色 + 半透明）
       svg.style.opacity = "0.15"; // 仅图标本体半透明
       svg.style.filter = invert ? "invert(1)" : "none";
-      if(isVideoPage())
-      {
-        svg.style.marginTop = "-10px"; 
-      }
-      else{
+      if (isVideoPage()) {
+        svg.style.marginTop = "-10px";
+      } else {
         svg.style.marginTop = "-40px";
       }
     }
@@ -1317,10 +1317,17 @@
 
     card.appendChild(kirbyWrapper);
   }
+  function removeKirbyOverlay(card) {
+    const kirbyWrapper = card.querySelector("#bilibili-blacklist-kirby");
+    if (kirbyWrapper) {
+      kirbyWrapper.remove();
+    }
+  }
   //#endregion
   //##########################
 
   //#region 观察者
+  let obsTimeout = 1000;
   // MutationObserver 检测动态加载的新内容（仅当节点可见时才触发）
   const observer = new MutationObserver((mutations) => {
     let shouldCheck = false;
@@ -1365,7 +1372,13 @@
         if (!document.getElementById("bilibili-blacklist-manager")) {
           addBlacklistManagerButton();
         }
-      }, 1000);
+
+        if (obsTimeout <= 10) {
+          obsTimeout = 10; // 设置最小超时时间
+        } else {
+          obsTimeout /= 2; // 递减超时时间
+        }
+      }, obsTimeout);
     }
   });
 
@@ -1557,6 +1570,7 @@
     const adSelectors = [
       ".floor-single-card", // 分区推荐
       ".bili-live-card", // 直播推广
+      ".btn-ad", // 广告按钮
     ];
     adSelectors.forEach((selector) => {
       document.querySelectorAll(selector).forEach((adCard) => {
@@ -1576,6 +1590,7 @@
       ".activity-m-v1", // 活动推广
       ".video-page-special-card-small", // 特殊卡片推广
       ".ad-floor-exp", // 广告地板
+      ".btn-ad", // 广告按钮
     ];
 
     adSelectors.forEach((selector) => {
