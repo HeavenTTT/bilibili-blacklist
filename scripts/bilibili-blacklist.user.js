@@ -717,15 +717,19 @@
     isPageCurrentlyActive = !document.hidden;
   });
 
-  // 监听窗口焦点获取
+  // 监听窗口焦点获取 (用户请求停用)
+  /*
   window.addEventListener("focus", () => {
     isPageCurrentlyActive = true;
   });
+  */
 
-  // 监听窗口焦点失去
+  // 监听窗口焦点失去 (用户请求停用)
+  /*
   window.addEventListener("blur", () => {
     isPageCurrentlyActive = false;
   });
+  */
 
   //#endregion
 
@@ -1720,6 +1724,7 @@
 
     if (shouldCheck) {
       // 使用setTimeout延迟扫描，避免短时间内多次触发
+      
       setTimeout(() => {
         scanAndBlockVideoCards();
         if (isCurrentPageMain()) {
@@ -1853,9 +1858,21 @@
    * 初始化视频播放页特有的功能。
    */
   function initializeVideoPage() {
-    initializeObserver("right-container"); // 观察视频播放页右侧推荐区域
-    console.log("[bilibili-blacklist] 播放页已加载🍇");
+    // **用户修改 2: 延迟 5 秒启动屏蔽功能**
+    console.log("[bilibili-blacklist] 播放页已加载，将延迟 5 秒启动功能。🍇");
+
+    // 延迟 5 秒执行核心功能
+    setTimeout(() => {
+      initializeObserver("right-container"); // 观察视频播放页右侧推荐区域
+
+      // 首次手动扫描和广告屏蔽
+      scanAndBlockVideoCards();
+      blockVideoPageAds();
+
+      console.log("[bilibili-blacklist] 视频播放页屏蔽功能已启动。");
+    }, 5000); // 5000 毫秒 = 5 秒
   }
+
 
   /**
    * 检查当前页面是否为Bilibili分类页。
