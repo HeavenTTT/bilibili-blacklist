@@ -1,1 +1,28 @@
+<<<<<<< Updated upstream
 Nothing should be ignored based on the provided file changes, as they consist only of source/config files (.md, .js, .sh) without any build artifacts, dependencies, or temporary files.
+=======
+```
+# Build artifacts
+build/
+dist/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment files
+.env
+.env.local
+*.env.*
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependencies
+node_modules/
+```
+scripts/s.bat
+>>>>>>> Stashed changes
