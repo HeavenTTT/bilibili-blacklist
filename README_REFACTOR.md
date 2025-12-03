@@ -75,8 +75,7 @@ cd scripts
 ```
 
 ### 构建输出
-- `dist/bilibili-blacklist-refactored.user.js` - 重构后的完整脚本
-- `scripts/bilibili-blacklist-refactored.user.js` - 备份副本
+- `scripts/bilibili-blacklist.user.js` - 重构后的完整脚本
 
 ## 功能保留
 

@@ -30,7 +30,9 @@ source_files=(
 )
 
 # 输出文件
+
 output_file="$SCRIPT_DIR/../dist/bilibili-blacklist.user.js"
+
 
 # 清空输出文件
 > "$output_file"
