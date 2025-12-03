@@ -5,29 +5,32 @@
 
 set -e  # 遇到错误时退出
 
+# 获取脚本所在目录的绝对路径
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "开始构建 Bilibili-BlackList 用户脚本..."
 
 # 检查必要目录是否存在
-if [ ! -d "../src" ]; then
-    echo "错误: 源代码目录 ../src 不存在"
+if [ ! -d "$SCRIPT_DIR/../src" ]; then
+    echo "错误: 源代码目录 $SCRIPT_DIR/../src 不存在"
     exit 1
 fi
 
 # 创建输出目录（如果不存在）
-mkdir -p ../dist
+mkdir -p "$SCRIPT_DIR/../dist"
 
 # 定义源文件列表（不包括main.js，因为需要保留其头部信息）
 source_files=(
-    "../src/storage.js"
-    "../src/core.js"
-    "../src/video_data.js"
-    "../src/ui.js"
-    "../src/page_detection.js"
-    "../src/ad_blocker.js"
+    "$SCRIPT_DIR/../src/storage.js"
+    "$SCRIPT_DIR/../src/core.js"
+    "$SCRIPT_DIR/../src/video_data.js"
+    "$SCRIPT_DIR/../src/ui.js"
+    "$SCRIPT_DIR/../src/page_detection.js"
+    "$SCRIPT_DIR/../src/ad_blocker.js"
 )
 
 # 输出文件
-output_file="../dist/bilibili-blacklist.user.js"
+output_file="$SCRIPT_DIR/../dist/bilibili-blacklist.user.js"
 
 # 清空输出文件
 > "$output_file"
@@ -77,7 +80,7 @@ for file in "${source_files[@]}"; do
 done
 
 # 最后添加main.js的内容（跳过其头部信息）
-main_js_file="../src/main.js"
+main_js_file="$SCRIPT_DIR/../src/main.js"
 if [ -f "$main_js_file" ]; then
     echo "正在添加: $main_js_file (跳过头部信息)"
     sed '1,/^\/\/ ==\/UserScript==/d' "$main_js_file" >> "$output_file"
@@ -97,5 +100,5 @@ else
 fi
 
 # 可选：复制到 scripts 目录作为备份
-cp "$output_file" "./bilibili-blacklist-refactored.user.js"
-echo "已复制到当前目录: bilibili-blacklist-refactored.user.js"
+cp "$output_file" "$SCRIPT_DIR/bilibili-blacklist-refactored.user.js"
+echo "已复制到当前目录: $SCRIPT_DIR/bilibili-blacklist-refactored.user.js"
