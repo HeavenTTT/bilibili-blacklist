@@ -1,28 +1,40 @@
-<<<<<<< Updated upstream
-Nothing should be ignored based on the provided file changes, as they consist only of source/config files (.md, .js, .sh) without any build artifacts, dependencies, or temporary files.
-=======
 ```
+# Dependencies
+node_modules/
+
 # Build artifacts
 build/
 dist/
 
-# Logs and temp files
+# Logs
 *.log
-*.tmp
 
-# Environment files
+# Environment
 .env
 .env.local
 *.env.*
 
-# Editor/IDE files
+# Editor/IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*.tmp
 
-# Dependencies
-node_modules/
+# Python (if applicable)
+__pycache__/
+*.pyc
+*.pyo
+.Python
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage/
+htmlcov/
+
+# System files
+.DS_Store
+Thumbs.db
 ```
-scripts/s.bat
->>>>>>> Stashed changes
