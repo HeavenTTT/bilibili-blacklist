@@ -1,24 +1,3 @@
-// ==UserScript==
-// @name         Bilibili-BlackList
-// @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.1.8
-// @author       HeavenTTT
-// @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
-// @match        *://*.bilibili.com/*
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_addStyle
-// @icon         https://www.bilibili.com/favicon.ico
-// @license      MIT
-// @run-at       document-start
-// ==/UserScript==
-
-// 由Qwen Coder重构的Bilibili-BlackList用户脚本
-// 重构说明：
-// - 将原脚本拆分为多个模块：storage.js, core.js, video_data.js, ui.js, page_detection.js, ad_blocker.js
-// - 添加了常量定义到各文件顶部
-// - 优化了代码结构和可维护性
-// - 保留了所有原始功能
 // 存储管理模块
 // 默认精确匹配黑名单（区分大小写）
 const DEFAULT_EXACT_MATCH_BLACKLIST = [
@@ -1954,6 +1933,19 @@ window.BilibiliBlacklist.AdBlocker = (function() {
     blockVideoPageAds
   };
 })();
+// ==UserScript==
+// @name         Bilibili-BlackList
+// @namespace    https://github.com/HeavenTTT/bilibili-blacklist
+// @version      1.1.8
+// @author       HeavenTTT
+// @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
+// @match        *://*.bilibili.com/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// @icon         https://www.bilibili.com/favicon.ico
+// @license      MIT
+// ==/UserScript==
 
 (function () {
   "use strict";
