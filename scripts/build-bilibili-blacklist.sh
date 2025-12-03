@@ -16,7 +16,7 @@ fi
 # 创建输出目录（如果不存在）
 mkdir -p ../dist
 
-# 定义源文件列表
+# 定义源文件列表（不包括main.js，因为需要保留其头部信息）
 source_files=(
     "../src/storage.js"
     "../src/core.js"
@@ -24,7 +24,6 @@ source_files=(
     "../src/ui.js"
     "../src/page_detection.js"
     "../src/ad_blocker.js"
-    "../src/main.js"
 )
 
 # 输出文件
@@ -33,16 +32,58 @@ output_file="../dist/bilibili-blacklist-refactored.user.js"
 # 清空输出文件
 > "$output_file"
 
-# 合并所有源文件
+# 添加用户脚本头部信息
+cat << 'EOF' >> "$output_file"
+// ==UserScript==
+// @name         Bilibili-BlackList
+// @namespace    https://github.com/HeavenTTT/bilibili-blacklist
+// @version      1.1.8
+// @author       HeavenTTT
+// @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
+// @match        *://*.bilibili.com/*
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_addStyle
+// @icon         https://www.bilibili.com/favicon.ico
+// @license      MIT
+// @run-at       document-start
+// ==/UserScript==
+
+// 由Qwen Coder重构的Bilibili-BlackList用户脚本
+// 重构说明：
+// - 将原脚本拆分为多个模块：storage.js, core.js, video_data.js, ui.js, page_detection.js, ad_blocker.js
+// - 添加了常量定义到各文件顶部
+// - 优化了代码结构和可维护性
+// - 保留了所有原始功能
+EOF
+
+echo "已添加用户脚本头部信息"
+
+# 合并所有源文件（不包括main.js，因为头部信息已经添加）
 for file in "${source_files[@]}"; do
     if [ -f "$file" ]; then
         echo "正在添加: $file"
-        cat "$file" >> "$output_file"
+        # 跳过头部信息（如果有），避免重复
+        if head -n 1 "$file" | grep -q "@name"; then
+            # 如果文件包含用户脚本头部，则跳过头部部分
+            sed '1,/^\/\/ ==\/UserScript==/d' "$file" >> "$output_file"
+        else
+            cat "$file" >> "$output_file"
+        fi
         echo "" >> "$output_file"  # 添加空行作为分隔
     else
         echo "警告: 文件 $file 不存在"
     fi
 done
+
+# 最后添加main.js的内容（跳过其头部信息）
+main_js_file="../src/main.js"
+if [ -f "$main_js_file" ]; then
+    echo "正在添加: $main_js_file (跳过头部信息)"
+    sed '1,/^\/\/ ==\/UserScript==/d' "$main_js_file" >> "$output_file"
+else
+    echo "警告: 文件 $main_js_file 不存在"
+fi
 
 echo "构建完成！输出文件: $output_file"
 
