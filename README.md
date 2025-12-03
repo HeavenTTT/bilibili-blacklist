@@ -1,7 +1,7 @@
 # Bilibili-BlackList
 
 > Bilibili UP 主视频屏蔽插件 —— 支持精确匹配 / 正则匹配，屏蔽主页 / 播放页 / 搜索页 / 分类页 / 用户空间中的指定内容。  
-> 代码主要由 AI 辅助生成，持续优化中。
+> 代码主要由 AI 辅助生成，持续优化中。代码已由 QWEN Coder 重构为模块化结构。
 
 ---
 
@@ -84,7 +84,7 @@
 
 ## ⚠️ 注意事项
 
-- 代码主要由 AI 工具（ChatGPT / Gemini / DeepSeek）辅助生成，作者不保证稳定性，欢迎反馈问题。
+- 代码主要由 AI 工具（ChatGPT / Gemini / DeepSeek）辅助生成，后由 QWEN Coder 重构为模块化结构。作者不保证稳定性，欢迎反馈问题。
 - 如有 B 站页面结构调整，可能需要更新脚本适配。
 - 脚本完全本地运行，不上传任何用户数据，黑名单保存在浏览器中。
 
@@ -101,6 +101,7 @@ MIT License.
 感谢以下工具 / 项目：
 
 - ChatGPT / Gemini / DeepSeek AI 辅助代码生成
+- QWEN Coder 重构为模块化结构
 - Tampermonkey 油猴脚本平台
 - Bilibili 官方页面结构
 
