@@ -2018,6 +2018,7 @@
       ".video-page-special-card-small", // 特殊卡片推广
       ".ad-floor-exp", // 广告地板
       ".btn-ad", // 广告按钮
+      ".video-page-operator-card-small", // 运营推广
     ];
 
     adSelectors.forEach((selector) => {
