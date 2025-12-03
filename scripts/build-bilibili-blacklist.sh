@@ -27,7 +27,7 @@ source_files=(
 )
 
 # 输出文件
-output_file="../dist/bilibili-blacklist.user.js"
+output_file="../scripts/bilibili-blacklist.user.js"
 
 # 清空输出文件
 > "$output_file"
