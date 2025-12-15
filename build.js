@@ -33,7 +33,7 @@ let outputContent = '';
 outputContent += '// ==UserScript==\n';
 outputContent += '// @name         Bilibili-BlackList\n';
 outputContent += '// @namespace    https://github.com/HeavenTTT/bilibili-blacklist\n';
-outputContent += '// @version      1.2.0\n';
+outputContent += '// @version      1.2.1\n';
 outputContent += '// @author       HeavenTTT\n';
 outputContent += '// @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。\n';
 outputContent += '// @match        *://*.bilibili.com/*\n';

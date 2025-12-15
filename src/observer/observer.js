@@ -35,6 +35,7 @@ function loadObserverModule() {
             return hasVisibleContent;
           });
         }
+        getVideoPageState();
       });
     } else {
       // 其他页面只要有节点添加就触发

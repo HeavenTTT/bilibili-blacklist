@@ -44,4 +44,20 @@ function loadStorageModule() {
   function saveGlobalConfigToStorage() {
     GM_setValue("globalConfig", globalPluginConfig);
   }
+
+  // 标签名列表：存储ID到名称的映射
+  let tagNameList = GM_getValue("tagNameList", []); // 默认为空数组，每个条目为 { id, name }
+
+  // 将标签名列表保存到存储中
+  function saveTagNameListToStorage() {
+    GM_setValue("tagNameList", tagNameList);
+  }
+
+  // 根据ID查找标签名
+  function getTagNameById(id) {
+    if (id === null || id === undefined) return null;
+    // 支持字符串或数字ID
+    const entry = tagNameList.find(entry => entry.id == id); // 使用宽松相等以匹配类型
+    return entry ? entry.name : null;
+  }
 }

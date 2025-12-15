@@ -61,7 +61,26 @@ function loadVideoDataModule() {
       console.error("[bilibili-blacklist] API 请求失败:", error);
     }
   }
-
+  // 12-14-2025 临时修复-api.bilibili.com/x/web-interface/view获取的json TName 为空
+  async function getBilibiliSearchVideoApiData(bvid) {
+    if (!bvid || bvid.length >= 24) {
+      return null;
+    }
+    const url = `https://api.bilibili.com/x/web-interface/wbi/search/type?category_id=&search_type=video&__refresh__=true&keyword=${bvid}`;
+    try {
+      const response = await fetch(url);
+      const json = await response.json();
+      console.log('s1');
+      console.log(json);
+      if (json.code === 0) {
+        return json.data;
+      } else {
+        return null;
+      }
+    } catch (error) {
+      console.error("[bilibili-blacklist] Search API 请求失败:", error);
+    }
+  }
   /**
    * 检查卡片是否包含任何黑名单标签。
    * @param {HTMLElement} cardElement - 视频卡片元素。
