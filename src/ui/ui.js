@@ -21,19 +21,44 @@ function loadUiModule() {
 
   /**
    * 为标签名创建屏蔽按钮，显示在视频卡片上。
-   * @param {string} tagName - 标签名。
+   * @param {string|object} tagName - 标签名或{tname, tid}对象。
    * @param {HTMLElement} cardElement - 视频卡片元素。
    * @returns {HTMLSpanElement} 创建的按钮元素。
    */
   function createTNameBlockButton(tagName, cardElement) {
     const button = document.createElement("span");
     button.className = "bilibili-blacklist-tname";
-    button.innerHTML = `${tagName}`;
-    button.title = `屏蔽: ${tagName}`;
+    
+    let displayText = "";
+    let tagData = null;
+    
+    if (typeof tagName === 'object' && tagName.tname && tagName.tid) {
+      // 如果传入的是对象，使用tname显示，但将tid信息存储在按钮中
+      displayText = tagName.tname;
+      tagData = tagName;
+    } else {
+      // 如果传入的是字符串，直接显示
+      displayText = tagName;
+    }
+    
+    button.innerHTML = `${displayText}`;
+    button.title = `屏蔽: ${displayText}`;
+    
+    // 存储tid信息在按钮上，用于后续的屏蔽操作
+    if (tagData) {
+      button.setAttribute('data-tid', tagData.tid);
+      button.setAttribute('data-tname', tagData.tname);
+    }
 
     button.addEventListener("click", (e) => {
       e.stopPropagation(); // 阻止事件冒泡
-      addToTagNameBlacklist(tagName, cardElement);
+      if (tagData) {
+        // 如果有tid信息，使用{id, tname}格式添加到黑名单
+        addToTagNameBlacklist({id: tagData.tid, tname: tagData.tname}, cardElement);
+      } else {
+        // 否则只使用标签名添加
+        addToTagNameBlacklist(displayText, cardElement);
+      }
     });
 
     return button;

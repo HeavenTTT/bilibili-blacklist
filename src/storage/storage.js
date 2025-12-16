@@ -16,8 +16,10 @@ function loadStorageModule() {
     "绝地求生",
     "吃鸡",
   ]);
-  // 默认标签名黑名单
-  let tagNameBlacklist = GM_getValue("tNameBlacklist", ["手机游戏"]);
+  // 默认标签名黑名单 - 现在格式为 {id, tname}
+  let tagNameBlacklist = GM_getValue("tNameBlacklist", [
+    { id: 1, tname: "手机游戏" }
+  ]);
 
   // 从存储中获取全局配置
   let globalPluginConfig = GM_getValue("globalConfig", {
@@ -59,5 +61,20 @@ function loadStorageModule() {
     // 支持字符串或数字ID
     const entry = tagNameList.find(entry => entry.id == id); // 使用宽松相等以匹配类型
     return entry ? entry.name : null;
+  }
+
+  // 根据ID在标签黑名单中查找标签名
+  function getTNameFromBlacklistById(id) {
+    if (id === null || id === undefined) return null;
+    // 支持字符串或数字ID
+    const entry = tagNameBlacklist.find(entry => entry.id == id); // 使用宽松相等以匹配类型
+    return entry ? entry.tname : null;
+  }
+
+  // 根据标签名在标签黑名单中查找ID
+  function getIdFromBlacklistByTName(tname) {
+    if (tname === null || tname === undefined) return null;
+    const entry = tagNameBlacklist.find(entry => entry.tname === tname);
+    return entry ? entry.id : null;
   }
 }

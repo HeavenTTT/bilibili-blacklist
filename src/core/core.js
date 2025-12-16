@@ -362,7 +362,7 @@ function loadCoreModule() {
 
   /**
    * 将标签名添加到黑名单并刷新。
-   * @param {string} tagName - 要添加的标签名。
+   * @param {string|object} tagName - 要添加的标签名或{id, tname}对象。
    * @param {HTMLElement} [cardElement=null] - 添加后要隐藏的视频卡片元素。
    */
   function addToTagNameBlacklist(tagName, cardElement = null) {
@@ -370,8 +370,23 @@ function loadCoreModule() {
       if (!tagName) {
         return;
       }
-      if (!tagNameBlacklist.includes(tagName)) {
-        tagNameBlacklist.push(tagName);
+      
+      let tagEntry;
+      if (typeof tagName === 'string') {
+        // 如果传入的是字符串，自动生成ID
+        tagEntry = { id: generateUniqueId(), tname: tagName };
+      } else if (typeof tagName === 'object' && tagName.id && tagName.tname) {
+        // 如果传入的是对象，直接使用
+        tagEntry = tagName;
+      } else {
+        console.error("[bilibili-blacklist] 无效的标签格式:", tagName);
+        return;
+      }
+      
+      // 检查是否已存在相同的tname
+      const existingIndex = tagNameBlacklist.findIndex(item => item.tname === tagEntry.tname);
+      if (existingIndex === -1) {
+        tagNameBlacklist.push(tagEntry);
         saveBlacklistsToStorage();
         refreshAllPanelTabs();
         if (cardElement) {
@@ -384,13 +399,32 @@ function loadCoreModule() {
   }
 
   /**
-   * 从黑名单中移除标签名。
-   * @param {string} tagName - 要移除的标签名。
+   * 生成唯一的ID
+   * @returns {number} 唯一ID
    */
-  function removeFromTagNameBlacklist(tagName) {
+  function generateUniqueId() {
+    const maxId = tagNameBlacklist.reduce((max, item) => Math.max(max, item.id), 0);
+    return maxId + 1;
+  }
+
+  /**
+   * 从黑名单中移除标签名。
+   * @param {string|number} identifier - 要移除的标签名或ID。
+   */
+  function removeFromTagNameBlacklist(identifier) {
     try {
-      if (tagNameBlacklist.includes(tagName)) {
-        const index = tagNameBlacklist.indexOf(tagName);
+      let index = -1;
+      
+      // 如果传入的是字符串（标签名），查找对应项
+      if (typeof identifier === 'string') {
+        index = tagNameBlacklist.findIndex(item => item.tname === identifier);
+      } 
+      // 如果传入的是数字（ID），查找对应项
+      else if (typeof identifier === 'number') {
+        index = tagNameBlacklist.findIndex(item => item.id === identifier);
+      }
+      
+      if (index !== -1) {
         tagNameBlacklist.splice(index, 1);
         saveBlacklistsToStorage();
         refreshTagNameList();

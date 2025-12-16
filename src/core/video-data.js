@@ -86,21 +86,41 @@ function loadVideoDataModule() {
    * @param {HTMLElement} cardElement - 视频卡片元素。
    * @returns {boolean} 如果有任何标签被列入黑名单，则返回true，否则返回false。
    */
-  function isCardBlacklistedByTagName(cardElement) {
-    const tnameGroup = cardElement.querySelector(
-      ".bilibili-blacklist-tname-group"
-    );
-    if (tnameGroup) {
-      const tnameElements = tnameGroup.querySelectorAll(
-        ".bilibili-blacklist-tname"
-      );
-      for (const tnameElement of tnameElements) {
-        const tname = tnameElement.textContent.trim();
-        if (tagNameBlacklist.includes(tname)) {
+  async function isCardBlacklistedByTagName(cardElement) {
+    // 获取卡片的链接以提取BV号
+    const link = getCardHrefLink(cardElement);
+    const bvId = getLinkBvId(link);
+    
+    if (!bvId) {
+      return false;
+    }
+    
+    // 获取视频的API数据
+    const data = await getBilibiliVideoApiData(bvId);
+    if (!data) {
+      return false;
+    }
+    
+    // 检查tid是否在黑名单中
+    const tid = data.tid;
+    const tid_v2 = data.tid_v2; // 如果有多个tid
+    
+    // 检查tid是否在黑名单中
+    if (tid && tagNameBlacklist.some(item => item.id == tid)) {
+      return true;
+    }
+    
+    // 如果有tid_v2，也检查它
+    if (tid_v2 && Array.isArray(tid_v2)) {
+      for (const tid_item of tid_v2) {
+        if (tagNameBlacklist.some(item => item.id == tid_item)) {
           return true;
         }
       }
+    } else if (tid_v2 && tagNameBlacklist.some(item => item.id == tid_v2)) {
+      return true;
     }
+    
     return false;
   }
 
@@ -175,13 +195,13 @@ function loadVideoDataModule() {
               let hasTname = false;
 
               if (data.tname) {
-                const btn = createTNameBlockButton(data.tname, card);
+                const btn = createTNameBlockButton({tname: data.tname, tid: data.tid}, card);
                 tnameGroup.appendChild(btn);
                 hasTname = true;
               }
               if (data.tname_v2) {
                 const tnameElement = createTNameBlockButton(
-                  data.tname_v2,
+                  {tname: data.tname_v2, tid: data.tid}, // 使用主tid，如果需要可以改为tid_v2
                   card
                 );
                 tnameGroup.appendChild(tnameElement);
@@ -192,7 +212,7 @@ function loadVideoDataModule() {
               }
             }
 
-            if (isCardBlacklistedByTagName(card)) {
+            if (await isCardBlacklistedByTagName(card)) {
               shouldHide = true;
               blockType = "tname";
             }

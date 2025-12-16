@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Bilibili-BlackList
 // @namespace    https://github.com/HeavenTTT/bilibili-blacklist
-// @version      1.2.0
+// @version      1.2.1
 // @author       HeavenTTT
 // @description  Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match        *://*.bilibili.com/*
@@ -43,8 +43,10 @@
     "绝地求生",
     "吃鸡",
   ]);
-  // 默认标签名黑名单
-  let tagNameBlacklist = GM_getValue("tNameBlacklist", ["手机游戏"]);
+  // 默认标签名黑名单 - 现在格式为 {id, tname}
+  let tagNameBlacklist = GM_getValue("tNameBlacklist", [
+    { id: 1, tname: "手机游戏" }
+  ]);
 
   // 从存储中获取全局配置
   let globalPluginConfig = GM_getValue("globalConfig", {
@@ -70,6 +72,37 @@
   // 将全局配置保存到存储中
   function saveGlobalConfigToStorage() {
     GM_setValue("globalConfig", globalPluginConfig);
+  }
+
+  // 标签名列表：存储ID到名称的映射
+  let tagNameList = GM_getValue("tagNameList", []); // 默认为空数组，每个条目为 { id, name }
+
+  // 将标签名列表保存到存储中
+  function saveTagNameListToStorage() {
+    GM_setValue("tagNameList", tagNameList);
+  }
+
+  // 根据ID查找标签名
+  function getTagNameById(id) {
+    if (id === null || id === undefined) return null;
+    // 支持字符串或数字ID
+    const entry = tagNameList.find(entry => entry.id == id); // 使用宽松相等以匹配类型
+    return entry ? entry.name : null;
+  }
+
+  // 根据ID在标签黑名单中查找标签名
+  function getTNameFromBlacklistById(id) {
+    if (id === null || id === undefined) return null;
+    // 支持字符串或数字ID
+    const entry = tagNameBlacklist.find(entry => entry.id == id); // 使用宽松相等以匹配类型
+    return entry ? entry.tname : null;
+  }
+
+  // 根据标签名在标签黑名单中查找ID
+  function getIdFromBlacklistByTName(tname) {
+    if (tname === null || tname === undefined) return null;
+    const entry = tagNameBlacklist.find(entry => entry.tname === tname);
+    return entry ? entry.id : null;
   }
 
   // UI元素（稍后初始化）
@@ -435,7 +468,7 @@
 
   /**
    * 将标签名添加到黑名单并刷新。
-   * @param {string} tagName - 要添加的标签名。
+   * @param {string|object} tagName - 要添加的标签名或{id, tname}对象。
    * @param {HTMLElement} [cardElement=null] - 添加后要隐藏的视频卡片元素。
    */
   function addToTagNameBlacklist(tagName, cardElement = null) {
@@ -443,8 +476,23 @@
       if (!tagName) {
         return;
       }
-      if (!tagNameBlacklist.includes(tagName)) {
-        tagNameBlacklist.push(tagName);
+      
+      let tagEntry;
+      if (typeof tagName === 'string') {
+        // 如果传入的是字符串，自动生成ID
+        tagEntry = { id: generateUniqueId(), tname: tagName };
+      } else if (typeof tagName === 'object' && tagName.id && tagName.tname) {
+        // 如果传入的是对象，直接使用
+        tagEntry = tagName;
+      } else {
+        console.error("[bilibili-blacklist] 无效的标签格式:", tagName);
+        return;
+      }
+      
+      // 检查是否已存在相同的tname
+      const existingIndex = tagNameBlacklist.findIndex(item => item.tname === tagEntry.tname);
+      if (existingIndex === -1) {
+        tagNameBlacklist.push(tagEntry);
         saveBlacklistsToStorage();
         refreshAllPanelTabs();
         if (cardElement) {
@@ -457,13 +505,32 @@
   }
 
   /**
-   * 从黑名单中移除标签名。
-   * @param {string} tagName - 要移除的标签名。
+   * 生成唯一的ID
+   * @returns {number} 唯一ID
    */
-  function removeFromTagNameBlacklist(tagName) {
+  function generateUniqueId() {
+    const maxId = tagNameBlacklist.reduce((max, item) => Math.max(max, item.id), 0);
+    return maxId + 1;
+  }
+
+  /**
+   * 从黑名单中移除标签名。
+   * @param {string|number} identifier - 要移除的标签名或ID。
+   */
+  function removeFromTagNameBlacklist(identifier) {
     try {
-      if (tagNameBlacklist.includes(tagName)) {
-        const index = tagNameBlacklist.indexOf(tagName);
+      let index = -1;
+      
+      // 如果传入的是字符串（标签名），查找对应项
+      if (typeof identifier === 'string') {
+        index = tagNameBlacklist.findIndex(item => item.tname === identifier);
+      } 
+      // 如果传入的是数字（ID），查找对应项
+      else if (typeof identifier === 'number') {
+        index = tagNameBlacklist.findIndex(item => item.id === identifier);
+      }
+      
+      if (index !== -1) {
         tagNameBlacklist.splice(index, 1);
         saveBlacklistsToStorage();
         refreshTagNameList();
@@ -535,7 +602,26 @@
       console.error("[bilibili-blacklist] API 请求失败:", error);
     }
   }
-
+  // 12-14-2025 临时修复-api.bilibili.com/x/web-interface/view获取的json TName 为空
+  async function getBilibiliSearchVideoApiData(bvid) {
+    if (!bvid || bvid.length >= 24) {
+      return null;
+    }
+    const url = `https://api.bilibili.com/x/web-interface/wbi/search/type?category_id=&search_type=video&__refresh__=true&keyword=${bvid}`;
+    try {
+      const response = await fetch(url);
+      const json = await response.json();
+      console.log('s1');
+      console.log(json);
+      if (json.code === 0) {
+        return json.data;
+      } else {
+        return null;
+      }
+    } catch (error) {
+      console.error("[bilibili-blacklist] Search API 请求失败:", error);
+    }
+  }
   /**
    * 检查卡片是否包含任何黑名单标签。
    * @param {HTMLElement} cardElement - 视频卡片元素。
@@ -551,7 +637,7 @@
       );
       for (const tnameElement of tnameElements) {
         const tname = tnameElement.textContent.trim();
-        if (tagNameBlacklist.includes(tname)) {
+        if (tagNameBlacklist.some(item => item.tname === tname)) {
           return true;
         }
       }
@@ -1686,6 +1772,7 @@
             return hasVisibleContent;
           });
         }
+        getVideoPageState();
       });
     } else {
       // 其他页面只要有节点添加就触发
@@ -1997,6 +2084,20 @@
   // 这里可以放置一些通用的工具函数
   // 目前脚本中没有独立的工具函数，所以这个模块暂时为空
   // 如果后续有需要可以添加更多工具函数
+  function getVideoPageState() {
+    //var initialState = unsafeWindow.__INITIAL_STATE__.channelKv; // 更改 'static' 为更具描述性的 'initialState'
+    var channelKv = window.__INITIAL_STATE__.channelKv; // 更改 'static' 为更具描述性的 'initialState'
+    //if (!channelKv) return;
+    //if (channelKv.length == 0) return;
+    channelKv.forEach(element => {
+      console.log("Id ",element.channelId," = ",element.name);
+      var subList = element.sub;
+      subList.forEach(subelement => {
+        console.log("sub Id ",subelement.tid," = ",subelement.name);
+      });
+    });
+
+  }
 
   /*
    * Bilibili-BlackList -- Bilibili UP屏蔽插件
