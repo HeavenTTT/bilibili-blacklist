@@ -3,6 +3,8 @@ function loadPagesModule() {
    * 根据当前页面初始化脚本。
    */
   function initializeScript() {
+    if (!isfirstLoad) return;
+    isfirstLoad = false;
     // 重置状态变量
     isBlockingOperationInProgress = false;
     lastBlockScanExecutionTime = 0;
@@ -19,8 +21,6 @@ function loadPagesModule() {
       blockMainPageAds(); // 搜索页也进行主页广告屏蔽
     } else if (isCurrentPageVideo()) {
       initializeVideoPage();
-      updateTNameList();
-      console.log(tagNameList);
     } else if (isCurrentPageCategory()) {
       initializeCategoryPage();
     } else if (isCurrentUserSpace()) {
@@ -30,15 +30,18 @@ function loadPagesModule() {
     }
     createBlacklistPanel(); // 创建管理面板
     console.log("[bilibili-blacklist] 脚本已加载🥔");
+    updateTNameList();
   }
-
+  let isfirstLoad = true;
   // 监听DOMContentLoaded并检查readyState以进行早期初始化
   document.addEventListener("DOMContentLoaded", initializeScript);
-  if (
-    document.readyState === "complete" /*||
-    document.readyState === "interactive"*/
-  ) {
-    initializeScript();
+  if (document.readyState === "complete"&& isfirstLoad) {
+      initializeScript();
+      isfirstLoad = false;
+  }
+  if (document.readyState === "interactive" && isfirstLoad) {
+      initializeScript();
+      isfirstLoad = false;
   }
 
   /**

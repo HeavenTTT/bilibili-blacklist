@@ -10,6 +10,8 @@
 // @grant        GM_addStyle
 // @icon         https://www.bilibili.com/favicon.ico
 // @license      MIT
+// @downloadURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js
+// @updateURL https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.meta.js
 // ==/UserScript==
 
 (function () {
@@ -44,7 +46,7 @@
     "吃鸡",
   ]);
   // 默认标签名黑名单
-  let tagNameBlacklist = GM_getValue("tNameBlacklist", ["手机游戏"]);
+  let tagNameBlacklist = GM_getValue("tNameBlacklist", []);
 
   // 从存储中获取全局配置
   let globalPluginConfig = GM_getValue("globalConfig", {
@@ -73,11 +75,12 @@
   }
 
   // 标签名列表：存储ID到名称的映射
-  let tagNameList = GM_getValue("tagNameList", []); // 默认为空数组，每个条目为 { id, name }
-
+  let tagNameList = GM_getValue("tagNameList", []); // 默认为空数组，每个条目为 { id, name , name_v2}
+  let tagListLastTime = GM_getValue("tLastTime", 0);
   // 将标签名列表保存到存储中
   function saveTagNameListToStorage() {
     GM_setValue("tagNameList", tagNameList);
+    GM_setValue("tLastTime", Date.now());
   }
 
   // 根据ID查找标签名
@@ -85,7 +88,14 @@
     if (id === null || id === undefined) return null;
     // 支持字符串或数字ID
     const entry = tagNameList.find(entry => entry.id == id); // 使用宽松相等以匹配类型
-    return entry ? entry.name : null;
+    return entry ? { name: entry.name, name_v2: entry.name_v2 } : null;
+  }
+  // 根据name_v2查找标签名
+  function getTagNameByV2(name_v2) {
+    if (name_v2 === null || name_v2 === undefined) return null;
+    // 支持字符串或数字ID
+    const entry = tagNameList.find(entry => entry.name_v2 == name_v2); // 使用宽松相等以匹配类型
+    return entry ? entry.name: null;
   }
 
   // UI元素（稍后初始化）
@@ -426,6 +436,7 @@
         if (cardElement) {
           hideVideoCard(cardElement);
         }
+        hideAllCardsByUpName(upName);
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 添加黑名单出错:", e);
@@ -466,6 +477,7 @@
         if (cardElement) {
           hideVideoCard(cardElement);
         }
+        hideAllCardsByTagName(tagName);
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 添加标签黑名单出错:", e);
@@ -487,6 +499,35 @@
     } catch (e) {
       console.error("[bilibili-blacklist] 移除标签黑名单出错:", e);
     }
+  }
+
+  /**
+   * 隐藏所有匹配指定UP主名称的视频卡片。
+   * @param {string} upName - 要匹配的UP主名称。
+   */
+  function hideAllCardsByUpName(upName) {
+    const videoCards = queryAllVideoCards();
+    if (!videoCards) return;
+    videoCards.forEach(card => {
+      const { upName: cardUpName, videoTitle } = getVideoCardInfo(card);
+      if (cardUpName && isBlacklisted(cardUpName, videoTitle)) {
+        hideVideoCard(card, "info");
+      }
+    });
+  }
+
+  /**
+   * 隐藏所有匹配指定标签名的视频卡片。
+   * @param {string} tagName - 要匹配的标签名。
+   */
+  function hideAllCardsByTagName(tagName) {
+    const videoCards = queryAllVideoCards();
+    if (!videoCards) return;
+    videoCards.forEach(card => {
+      if (isCardBlacklistedByTagName(card)) {
+        hideVideoCard(card, "tname");
+      }
+    });
   }
 
   /**
@@ -569,6 +610,12 @@
         if (tagNameBlacklist.includes(tname)) {
           return true;
         }
+        // 临时更新，根据V2查找名称
+        const name = getTagNameByV2(tname);
+        if (name === null) continue;
+        if (tagNameBlacklist.includes(name)) {
+          return true;
+        }
       }
     }
     return false;
@@ -643,7 +690,7 @@
               const tnameGroup = document.createElement("div");
               tnameGroup.className = "bilibili-blacklist-tname-group";
               let hasTname = false;
-
+              
               if (data.tname) {
                 const btn = createTNameBlockButton(data.tname, card);
                 tnameGroup.appendChild(btn);
@@ -657,6 +704,24 @@
                 tnameGroup.appendChild(tnameElement);
                 hasTname = true;
               }
+              //#region 临时修复，仅ID
+              if (data.tid_v2) {
+                const obj = getTagNameById(data.tid_v2);
+                if (obj) {
+                  const tnameElement = createTNameBlockButton(
+                    obj.name,
+                    card
+                  );
+                  tnameGroup.appendChild(tnameElement);
+                  const tnameElement_v2 = createTNameBlockButton(
+                    obj.name_v2,
+                    card
+                  );
+                  tnameGroup.appendChild(tnameElement_v2);
+                  hasTname = true;
+                }
+              }
+              //#endregion
               if (hasTname) {
                 container.appendChild(tnameGroup);
               }
@@ -1120,6 +1185,44 @@
         "通过请求API获取分类标签"
       )
     );
+
+    // 标签缓存数量显示与清除按钮
+    const tagNameListControlContainer = document.createElement("div");
+    tagNameListControlContainer.style.display = "flex";
+    tagNameListControlContainer.style.alignItems = "center";
+    tagNameListControlContainer.style.marginBottom = "8px";
+    tagNameListControlContainer.style.gap = "8px";
+    tagNameListControlContainer.title = "打开视频播放页面可刷新";
+
+    const tagNameListLabel = document.createElement("span");
+    tagNameListLabel.textContent = `分类标签缓存数量: ${tagNameList.length}`;
+    tagNameListLabel.style.flex = "1";
+
+    const clearTagNameListButton = document.createElement("button");
+    clearTagNameListButton.textContent = "清除";
+    clearTagNameListButton.style.padding = "6px 12px";
+    clearTagNameListButton.style.backgroundColor = "#f56c6c";
+    clearTagNameListButton.style.color = "#fff";
+    clearTagNameListButton.style.border = "none";
+    clearTagNameListButton.style.borderRadius = "4px";
+    clearTagNameListButton.style.cursor = "pointer";
+    clearTagNameListButton.addEventListener("click", () => {
+      if (confirm("确定要清除分类标签缓存吗？这不会影响已屏蔽的标签，但会使得下次需要重新从API获取标签信息。")) {
+        tagNameList.length = 0;
+        if (typeof saveTagNameListToStorage === "function") {
+          saveTagNameListToStorage();
+        } else {
+          GM_setValue("tagNameList", []);
+          GM_setValue("tLastTime", 0);
+        }
+        tagNameListLabel.textContent = `分类标签缓存数量: 0`;
+      }
+    });
+
+    tagNameListControlContainer.appendChild(tagNameListLabel);
+    tagNameListControlContainer.appendChild(clearTagNameListButton);
+    configListElement.appendChild(tagNameListControlContainer);
+
     configListElement.appendChild(
       createSettingToggleButton(
         "屏蔽竖屏视频",
@@ -1701,7 +1804,6 @@
             return hasVisibleContent;
           });
         }
-        getVideoPageState();
       });
     } else {
       // 其他页面只要有节点添加就触发
@@ -1764,6 +1866,8 @@
    * 根据当前页面初始化脚本。
    */
   function initializeScript() {
+    if (!isfirstLoad) return;
+    isfirstLoad = false;
     // 重置状态变量
     isBlockingOperationInProgress = false;
     lastBlockScanExecutionTime = 0;
@@ -1789,15 +1893,18 @@
     }
     createBlacklistPanel(); // 创建管理面板
     console.log("[bilibili-blacklist] 脚本已加载🥔");
+    updateTNameList();
   }
-
+  let isfirstLoad = true;
   // 监听DOMContentLoaded并检查readyState以进行早期初始化
   document.addEventListener("DOMContentLoaded", initializeScript);
-  if (
-    document.readyState === "complete" ||
-    document.readyState === "interactive"
-  ) {
-    initializeScript();
+  if (document.readyState === "complete"&& isfirstLoad) {
+      initializeScript();
+      isfirstLoad = false;
+  }
+  if (document.readyState === "interactive" && isfirstLoad) {
+      initializeScript();
+      isfirstLoad = false;
   }
 
   /**
@@ -1850,11 +1957,9 @@
     // 延迟 5 秒执行核心功能
     setTimeout(() => {
       initializeObserver("right-container"); // 观察视频播放页右侧推荐区域
-
       // 首次手动扫描和广告屏蔽
       scanAndBlockVideoCards();
       blockVideoPageAds();
-
       console.log("[bilibili-blacklist] 视频播放页屏蔽功能已启动。");
     }, 5000); // 5000 毫秒 = 5 秒
   }
@@ -2010,22 +2115,93 @@
     });
   }
 
-  // 这里可以放置一些通用的工具函数
-  // 目前脚本中没有独立的工具函数，所以这个模块暂时为空
-  // 如果后续有需要可以添加更多工具函数
-  function getVideoPageState() {
-    //var initialState = unsafeWindow.__INITIAL_STATE__.channelKv; // 更改 'static' 为更具描述性的 'initialState'
-    var channelKv = window.__INITIAL_STATE__.channelKv; // 更改 'static' 为更具描述性的 'initialState'
-    //if (!channelKv) return;
-    //if (channelKv.length == 0) return;
-    channelKv.forEach(element => {
-      console.log("Id ",element.channelId," = ",element.name);
-      var subList = element.sub;
-      subList.forEach(subelement => {
-        console.log("sub Id ",subelement.tid," = ",subelement.name);
-      });
-    });
+  /// 12-16-2025 临时修复B站API无法获取Tname 问题，使用tid + 保存在本地的列表实现
+  // 从Video page 获取 本地资源
+  function getTNameListFormVideoPage() {
+    try {
+      var channelKv = unsafeWindow.__INITIAL_STATE__.channelKv;
+      if (!channelKv) return [];
 
+      var result = [];
+
+      // 遍历主频道
+      if (Array.isArray(channelKv)) {
+        channelKv.forEach(element => {
+          // if (!element.channelId || !element.name) {
+          //result.push({ id: element.channelId, tname: element.name });
+
+          // }
+
+          // 遍历子频道(sub)
+          var subList = element.sub;
+          if (Array.isArray(subList)) {
+            subList.forEach(subelement => {
+              if (element.channelId && element.name && subelement.tid && subelement.name) {
+                result.push({ id: subelement.tid, name: element.name, name_v2: subelement.name });
+              }
+            });
+          }
+        });
+      }
+      return result;
+    } catch (e) {
+      console.error("[bilibili-blacklist] 获取频道数据失败:", e);
+      return [];
+    }
+  }
+  // 增量更新 Tname list //24小时一次
+  function updateTNameList() {
+    if (tagNameList.length >= 1000) tagNameList = []; //防止过大时卡顿，清空重建
+    if (tagNameList.length === 0) tagListLastTime = 0; //确保初始为空时进行更新
+
+    const now = Date.now();
+    if (now - tagListLastTime < 86400000) {
+      console.log("[bilibili-blacklist] 标签名列表最近已更新，跳过本次更新。");
+      return;
+    }
+
+    const newList = getTNameListFormVideoPage();
+    if (newList.length === 0) {
+      console.warn("[bilibili-blacklist] 未能获取到新的标签名列表。");
+      return;
+    }
+
+    console.log(`[bilibili-blacklist] 获取到 ${newList.length} 个标签名，开始合并更新。`);
+
+    // 构建现有标签的映射以便快速查找（基于id）
+    const existingMap = new Map();
+    tagNameList.forEach(item => existingMap.set(String(item.id), item));
+
+    let updated = false;
+    for (const item of newList) {
+      const id = String(item.id);
+      const name = item.name; // 注意：getTNameListFormVideoPage 返回的是 tname 属性
+      const name_v2 = item.name_v2;
+      if (!existingMap.has(id)) {
+        // 新增条目
+        tagNameList.push({ id: item.id, name, name_v2 });
+        existingMap.set(id, { id: item.id, name, name_v2 });
+        updated = true;
+      } else {
+        // 已存在，检查名称是否一致，若不一致则更新
+        const existing = existingMap.get(id);
+        if (existing.name !== name) {
+          existing.name = name;
+          updated = true;
+        }
+      }
+    }
+
+    if (updated) {
+      saveTagNameListToStorage();
+      tagListLastTime = now; // 更新局部变量以保持同步
+      console.log("[bilibili-blacklist] 标签名列表已更新并保存。");
+    } else {
+      console.log("[bilibili-blacklist] 标签名列表无变化，仅更新时间戳。");
+      // 即使没有变化，也更新最后更新时间，避免频繁检查
+      GM_setValue("tLastTime", now);
+      tagListLastTime = now; // 更新局部变量以保持同步
+    }
   }
 
   /*

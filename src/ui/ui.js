@@ -410,6 +410,44 @@ function loadUiModule() {
         "通过请求API获取分类标签"
       )
     );
+
+    // 标签缓存数量显示与清除按钮
+    const tagNameListControlContainer = document.createElement("div");
+    tagNameListControlContainer.style.display = "flex";
+    tagNameListControlContainer.style.alignItems = "center";
+    tagNameListControlContainer.style.marginBottom = "8px";
+    tagNameListControlContainer.style.gap = "8px";
+    tagNameListControlContainer.title = "打开视频播放页面可刷新";
+
+    const tagNameListLabel = document.createElement("span");
+    tagNameListLabel.textContent = `分类标签缓存数量: ${tagNameList.length}`;
+    tagNameListLabel.style.flex = "1";
+
+    const clearTagNameListButton = document.createElement("button");
+    clearTagNameListButton.textContent = "清除";
+    clearTagNameListButton.style.padding = "6px 12px";
+    clearTagNameListButton.style.backgroundColor = "#f56c6c";
+    clearTagNameListButton.style.color = "#fff";
+    clearTagNameListButton.style.border = "none";
+    clearTagNameListButton.style.borderRadius = "4px";
+    clearTagNameListButton.style.cursor = "pointer";
+    clearTagNameListButton.addEventListener("click", () => {
+      if (confirm("确定要清除分类标签缓存吗？这不会影响已屏蔽的标签，但会使得下次需要重新从API获取标签信息。")) {
+        tagNameList.length = 0;
+        if (typeof saveTagNameListToStorage === "function") {
+          saveTagNameListToStorage();
+        } else {
+          GM_setValue("tagNameList", []);
+          GM_setValue("tLastTime", 0);
+        }
+        tagNameListLabel.textContent = `分类标签缓存数量: 0`;
+      }
+    });
+
+    tagNameListControlContainer.appendChild(tagNameListLabel);
+    tagNameListControlContainer.appendChild(clearTagNameListButton);
+    configListElement.appendChild(tagNameListControlContainer);
+
     configListElement.appendChild(
       createSettingToggleButton(
         "屏蔽竖屏视频",

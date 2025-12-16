@@ -11,18 +11,17 @@ function loadUtilsModule() {
       // 遍历主频道
       if (Array.isArray(channelKv)) {
         channelKv.forEach(element => {
-         // if (!element.channelId || !element.name) {
-            //result.push({ id: element.channelId, tname: element.name });
-            
-         // }
+          // if (!element.channelId || !element.name) {
+          //result.push({ id: element.channelId, tname: element.name });
+
+          // }
 
           // 遍历子频道(sub)
           var subList = element.sub;
           if (Array.isArray(subList)) {
             subList.forEach(subelement => {
               if (element.channelId && element.name && subelement.tid && subelement.name) {
-                result.push({ id: subelement.tid, name: element.name ,name_v2: subelement.name });
-                console.log("add :",subelement.tid, element.name,subelement.name);
+                result.push({ id: subelement.tid, name: element.name, name_v2: subelement.name });
               }
             });
           }
@@ -35,10 +34,10 @@ function loadUtilsModule() {
     }
   }
   // 增量更新 Tname list //24小时一次
-  function updateTNameList()
-  {
-    tagNameList=[]; // 清空现有列表
-    // 检查距离上次更新时间是否超过24小时（86400000毫秒）
+  function updateTNameList() {
+    if (tagNameList.length >= 1000) tagNameList = []; //防止过大时卡顿，清空重建
+    if (tagNameList.length === 0) tagListLastTime = 0; //确保初始为空时进行更新
+
     const now = Date.now();
     if (now - tagListLastTime < 86400000) {
       console.log("[bilibili-blacklist] 标签名列表最近已更新，跳过本次更新。");
@@ -64,7 +63,7 @@ function loadUtilsModule() {
       const name_v2 = item.name_v2;
       if (!existingMap.has(id)) {
         // 新增条目
-        tagNameList.push({ id: item.id, name , name_v2 });
+        tagNameList.push({ id: item.id, name, name_v2 });
         existingMap.set(id, { id: item.id, name, name_v2 });
         updated = true;
       } else {

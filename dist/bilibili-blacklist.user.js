@@ -436,6 +436,7 @@
         if (cardElement) {
           hideVideoCard(cardElement);
         }
+        hideAllCardsByUpName(upName);
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 添加黑名单出错:", e);
@@ -476,6 +477,7 @@
         if (cardElement) {
           hideVideoCard(cardElement);
         }
+        hideAllCardsByTagName(tagName);
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 添加标签黑名单出错:", e);
@@ -497,6 +499,35 @@
     } catch (e) {
       console.error("[bilibili-blacklist] 移除标签黑名单出错:", e);
     }
+  }
+
+  /**
+   * 隐藏所有匹配指定UP主名称的视频卡片。
+   * @param {string} upName - 要匹配的UP主名称。
+   */
+  function hideAllCardsByUpName(upName) {
+    const videoCards = queryAllVideoCards();
+    if (!videoCards) return;
+    videoCards.forEach(card => {
+      const { upName: cardUpName, videoTitle } = getVideoCardInfo(card);
+      if (cardUpName && isBlacklisted(cardUpName, videoTitle)) {
+        hideVideoCard(card, "info");
+      }
+    });
+  }
+
+  /**
+   * 隐藏所有匹配指定标签名的视频卡片。
+   * @param {string} tagName - 要匹配的标签名。
+   */
+  function hideAllCardsByTagName(tagName) {
+    const videoCards = queryAllVideoCards();
+    if (!videoCards) return;
+    videoCards.forEach(card => {
+      if (isCardBlacklistedByTagName(card)) {
+        hideVideoCard(card, "tname");
+      }
+    });
   }
 
   /**
@@ -581,7 +612,7 @@
         }
         // 临时更新，根据V2查找名称
         const name = getTagNameByV2(tname);
-        console.log("V2:",tname,"->",name);
+        if (name === null) continue;
         if (tagNameBlacklist.includes(name)) {
           return true;
         }
@@ -1154,6 +1185,44 @@
         "通过请求API获取分类标签"
       )
     );
+
+    // 标签缓存数量显示与清除按钮
+    const tagNameListControlContainer = document.createElement("div");
+    tagNameListControlContainer.style.display = "flex";
+    tagNameListControlContainer.style.alignItems = "center";
+    tagNameListControlContainer.style.marginBottom = "8px";
+    tagNameListControlContainer.style.gap = "8px";
+    tagNameListControlContainer.title = "打开视频播放页面可刷新";
+
+    const tagNameListLabel = document.createElement("span");
+    tagNameListLabel.textContent = `分类标签缓存数量: ${tagNameList.length}`;
+    tagNameListLabel.style.flex = "1";
+
+    const clearTagNameListButton = document.createElement("button");
+    clearTagNameListButton.textContent = "清除";
+    clearTagNameListButton.style.padding = "6px 12px";
+    clearTagNameListButton.style.backgroundColor = "#f56c6c";
+    clearTagNameListButton.style.color = "#fff";
+    clearTagNameListButton.style.border = "none";
+    clearTagNameListButton.style.borderRadius = "4px";
+    clearTagNameListButton.style.cursor = "pointer";
+    clearTagNameListButton.addEventListener("click", () => {
+      if (confirm("确定要清除分类标签缓存吗？这不会影响已屏蔽的标签，但会使得下次需要重新从API获取标签信息。")) {
+        tagNameList.length = 0;
+        if (typeof saveTagNameListToStorage === "function") {
+          saveTagNameListToStorage();
+        } else {
+          GM_setValue("tagNameList", []);
+          GM_setValue("tLastTime", 0);
+        }
+        tagNameListLabel.textContent = `分类标签缓存数量: 0`;
+      }
+    });
+
+    tagNameListControlContainer.appendChild(tagNameListLabel);
+    tagNameListControlContainer.appendChild(clearTagNameListButton);
+    configListElement.appendChild(tagNameListControlContainer);
+
     configListElement.appendChild(
       createSettingToggleButton(
         "屏蔽竖屏视频",
@@ -1797,6 +1866,8 @@
    * 根据当前页面初始化脚本。
    */
   function initializeScript() {
+    if (!isfirstLoad) return;
+    isfirstLoad = false;
     // 重置状态变量
     isBlockingOperationInProgress = false;
     lastBlockScanExecutionTime = 0;
@@ -1813,8 +1884,6 @@
       blockMainPageAds(); // 搜索页也进行主页广告屏蔽
     } else if (isCurrentPageVideo()) {
       initializeVideoPage();
-      updateTNameList();
-      console.log(tagNameList);
     } else if (isCurrentPageCategory()) {
       initializeCategoryPage();
     } else if (isCurrentUserSpace()) {
@@ -1824,15 +1893,18 @@
     }
     createBlacklistPanel(); // 创建管理面板
     console.log("[bilibili-blacklist] 脚本已加载🥔");
+    updateTNameList();
   }
-
+  let isfirstLoad = true;
   // 监听DOMContentLoaded并检查readyState以进行早期初始化
   document.addEventListener("DOMContentLoaded", initializeScript);
-  if (
-    document.readyState === "complete" /*||
-    document.readyState === "interactive"*/
-  ) {
-    initializeScript();
+  if (document.readyState === "complete"&& isfirstLoad) {
+      initializeScript();
+      isfirstLoad = false;
+  }
+  if (document.readyState === "interactive" && isfirstLoad) {
+      initializeScript();
+      isfirstLoad = false;
   }
 
   /**
@@ -2055,18 +2127,17 @@
       // 遍历主频道
       if (Array.isArray(channelKv)) {
         channelKv.forEach(element => {
-         // if (!element.channelId || !element.name) {
-            //result.push({ id: element.channelId, tname: element.name });
-            
-         // }
+          // if (!element.channelId || !element.name) {
+          //result.push({ id: element.channelId, tname: element.name });
+
+          // }
 
           // 遍历子频道(sub)
           var subList = element.sub;
           if (Array.isArray(subList)) {
             subList.forEach(subelement => {
               if (element.channelId && element.name && subelement.tid && subelement.name) {
-                result.push({ id: subelement.tid, name: element.name ,name_v2: subelement.name });
-                console.log("add :",subelement.tid, element.name,subelement.name);
+                result.push({ id: subelement.tid, name: element.name, name_v2: subelement.name });
               }
             });
           }
@@ -2079,12 +2150,12 @@
     }
   }
   // 增量更新 Tname list //24小时一次
-  function updateTNameList()
-  {
-    tagNameList=[]; // 清空现有列表
-    // 检查距离上次更新时间是否超过24小时（86400000毫秒）
+  function updateTNameList() {
+    if (tagNameList.length >= 1000) tagNameList = []; //防止过大时卡顿，清空重建
+    if (tagNameList.length === 0) tagListLastTime = 0; //确保初始为空时进行更新
+
     const now = Date.now();
-    if (now - tagListLastTime < 1) {
+    if (now - tagListLastTime < 86400000) {
       console.log("[bilibili-blacklist] 标签名列表最近已更新，跳过本次更新。");
       return;
     }
@@ -2108,7 +2179,7 @@
       const name_v2 = item.name_v2;
       if (!existingMap.has(id)) {
         // 新增条目
-        tagNameList.push({ id: item.id, name , name_v2 });
+        tagNameList.push({ id: item.id, name, name_v2 });
         existingMap.set(id, { id: item.id, name, name_v2 });
         updated = true;
       } else {

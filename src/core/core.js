@@ -337,6 +337,7 @@ function loadCoreModule() {
         if (cardElement) {
           hideVideoCard(cardElement);
         }
+        hideAllCardsByUpName(upName);
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 添加黑名单出错:", e);
@@ -377,6 +378,7 @@ function loadCoreModule() {
         if (cardElement) {
           hideVideoCard(cardElement);
         }
+        hideAllCardsByTagName(tagName);
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 添加标签黑名单出错:", e);
@@ -398,5 +400,34 @@ function loadCoreModule() {
     } catch (e) {
       console.error("[bilibili-blacklist] 移除标签黑名单出错:", e);
     }
+  }
+
+  /**
+   * 隐藏所有匹配指定UP主名称的视频卡片。
+   * @param {string} upName - 要匹配的UP主名称。
+   */
+  function hideAllCardsByUpName(upName) {
+    const videoCards = queryAllVideoCards();
+    if (!videoCards) return;
+    videoCards.forEach(card => {
+      const { upName: cardUpName, videoTitle } = getVideoCardInfo(card);
+      if (cardUpName && isBlacklisted(cardUpName, videoTitle)) {
+        hideVideoCard(card, "info");
+      }
+    });
+  }
+
+  /**
+   * 隐藏所有匹配指定标签名的视频卡片。
+   * @param {string} tagName - 要匹配的标签名。
+   */
+  function hideAllCardsByTagName(tagName) {
+    const videoCards = queryAllVideoCards();
+    if (!videoCards) return;
+    videoCards.forEach(card => {
+      if (isCardBlacklistedByTagName(card)) {
+        hideVideoCard(card, "tname");
+      }
+    });
   }
 }
