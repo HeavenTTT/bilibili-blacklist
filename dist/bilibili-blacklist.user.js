@@ -170,7 +170,7 @@
   /**
    * 隐藏给定的视频卡片。
    * @param {HTMLElement} cardElement - 要隐藏的视频卡片元素。
-   * @param {string} tpye - 隐藏类型，默认为"info"。
+   * @param {string} type - 隐藏类型，默认为"info"。
    * @returns {void}
    *
    */
@@ -202,7 +202,7 @@
     if (type === "vertical") {
       countBlockTName++;
     }
-    //console.log(tpye);
+    //console.log(type);
 
     if (globalPluginConfig.flagKirby) {
       addKirbyOverlayToCard(cardElement);
@@ -1884,8 +1884,10 @@
       blockMainPageAds(); // 搜索页也进行主页广告屏蔽
     } else if (isCurrentPageVideo()) {
       initializeVideoPage();
+      updateTNameList();
     } else if (isCurrentPageCategory()) {
       initializeCategoryPage();
+      updateTNameList();
     } else if (isCurrentUserSpace()) {
       initializeUserSpace();
     } else {
@@ -1893,7 +1895,7 @@
     }
     createBlacklistPanel(); // 创建管理面板
     console.log("[bilibili-blacklist] 脚本已加载🥔");
-    updateTNameList();
+    
   }
   let isfirstLoad = true;
   // 监听DOMContentLoaded并检查readyState以进行早期初始化
