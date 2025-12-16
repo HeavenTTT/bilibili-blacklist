@@ -21,8 +21,10 @@ function loadPagesModule() {
       blockMainPageAds(); // 搜索页也进行主页广告屏蔽
     } else if (isCurrentPageVideo()) {
       initializeVideoPage();
+      updateTNameList();
     } else if (isCurrentPageCategory()) {
       initializeCategoryPage();
+      updateTNameList();
     } else if (isCurrentUserSpace()) {
       initializeUserSpace();
     } else {
@@ -30,7 +32,7 @@ function loadPagesModule() {
     }
     createBlacklistPanel(); // 创建管理面板
     console.log("[bilibili-blacklist] 脚本已加载🥔");
-    updateTNameList();
+    
   }
   let isfirstLoad = true;
   // 监听DOMContentLoaded并检查readyState以进行早期初始化
