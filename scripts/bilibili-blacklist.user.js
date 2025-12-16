@@ -202,7 +202,7 @@
     if (type === "vertical") {
       countBlockTName++;
     }
-    //console.log(tpye);
+    //console.log(type);
 
     if (globalPluginConfig.flagKirby) {
       addKirbyOverlayToCard(cardElement);

@@ -71,7 +71,7 @@ function loadCoreModule() {
   /**
    * 隐藏给定的视频卡片。
    * @param {HTMLElement} cardElement - 要隐藏的视频卡片元素。
-   * @param {string} tpye - 隐藏类型，默认为"info"。
+   * @param {string} type - 隐藏类型，默认为"info"。
    * @returns {void}
    *
    */
@@ -103,7 +103,7 @@ function loadCoreModule() {
     if (type === "vertical") {
       countBlockTName++;
     }
-    //console.log(tpye);
+    //console.log(type);
 
     if (globalPluginConfig.flagKirby) {
       addKirbyOverlayToCard(cardElement);
