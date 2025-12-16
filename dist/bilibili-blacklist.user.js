@@ -104,6 +104,21 @@
     const entry = tagNameBlacklist.find(entry => entry.tname === tname);
     return entry ? entry.id : null;
   }
+  
+  // 根据tid获取显示名称（优先使用传入的tname，如果为空则尝试从存储中获取）
+  function getDisplayNameByTid(tid, tnameFromApi) {
+    // 如果API返回的tname不为空，直接使用
+    if (tnameFromApi && tnameFromApi.trim() !== '') {
+      return tnameFromApi;
+    }
+    // 否则尝试从本地存储中获取对应的名称
+    const storedName = getTagNameById(tid);
+    if (storedName) {
+      return storedName;
+    }
+    // 如果都没有，返回默认名称
+    return `未知分类${tid}`;
+  }
 
   // UI元素（稍后初始化）
   let tempUnblockButton;
@@ -489,15 +504,21 @@
         return;
       }
       
-      // 检查是否已存在相同的tname
-      const existingIndex = tagNameBlacklist.findIndex(item => item.tname === tagEntry.tname);
-      if (existingIndex === -1) {
+      // 检查是否已存在相同的id或tname
+      const existingById = tagNameBlacklist.findIndex(item => item.id == tagEntry.id);
+      const existingByTname = tagNameBlacklist.findIndex(item => item.tname === tagEntry.tname);
+      
+      // 只有当id和tname都不存在时才添加
+      if (existingById === -1 && existingByTname === -1) {
         tagNameBlacklist.push(tagEntry);
         saveBlacklistsToStorage();
         refreshAllPanelTabs();
         if (cardElement) {
           hideVideoCard(cardElement);
         }
+      } else {
+        // 如果id已存在但tname不同，或者tname已存在但id不同，可以考虑更新
+        console.log(`[bilibili-blacklist] 标签已存在于黑名单中: ${JSON.stringify(tagEntry)}`);
       }
     } catch (e) {
       console.error("[bilibili-blacklist] 添加标签黑名单出错:", e);
@@ -636,9 +657,19 @@
         ".bilibili-blacklist-tname"
       );
       for (const tnameElement of tnameElements) {
-        const tname = tnameElement.textContent.trim();
-        if (tagNameBlacklist.some(item => item.tname === tname)) {
-          return true;
+        // 首先检查是否有data-tid属性，如果有则优先使用tid匹配
+        const tid = tnameElement.getAttribute('data-tid');
+        if (tid) {
+          // 使用tid进行匹配
+          if (tagNameBlacklist.some(item => item.id == tid)) {
+            return true;
+          }
+        } else {
+          // 如果没有tid，则回退到使用tname匹配
+          const tname = tnameElement.textContent.trim();
+          if (tagNameBlacklist.some(item => item.tname === tname)) {
+            return true;
+          }
         }
       }
     }
@@ -715,18 +746,29 @@
               tnameGroup.className = "bilibili-blacklist-tname-group";
               let hasTname = false;
 
-              if (data.tname) {
-                const btn = createTNameBlockButton(data.tname, card);
+              // 使用tid进行匹配，但显示tname给用户
+              if (data.tid) {
+                // 获取对应的tname用于显示
+                const displayName = getDisplayNameByTid(data.tid, data.tname);
+                const btn = createTNameBlockButton(displayName, card, data.tid);
                 tnameGroup.appendChild(btn);
                 hasTname = true;
               }
-              if (data.tname_v2) {
-                const tnameElement = createTNameBlockButton(
-                  data.tname_v2,
-                  card
-                );
-                tnameGroup.appendChild(tnameElement);
-                hasTname = true;
+              if (data.tid_v2) {
+                // 处理多个tid的情况
+                const tidList = String(data.tid_v2).split(',');
+                const tnameList = data.tname_v2 ? String(data.tname_v2).split(',') : [];
+                
+                for (let i = 0; i < tidList.length; i++) {
+                  const tid = parseInt(tidList[i]);
+                  if (tid) {
+                    // 获取对应的tname用于显示
+                    const displayName = tnameList[i] || getTagNameById(tid) || `未知分类${tid}`;
+                    const btn = createTNameBlockButton(displayName, card, tid);
+                    tnameGroup.appendChild(btn);
+                    hasTname = true;
+                  }
+                }
               }
               if (hasTname) {
                 container.appendChild(tnameGroup);
@@ -806,15 +848,25 @@
    * @param {HTMLElement} cardElement - 视频卡片元素。
    * @returns {HTMLSpanElement} 创建的按钮元素。
    */
-  function createTNameBlockButton(tagName, cardElement) {
+  function createTNameBlockButton(tagName, cardElement, tid = null) {
     const button = document.createElement("span");
     button.className = "bilibili-blacklist-tname";
     button.innerHTML = `${tagName}`;
     button.title = `屏蔽: ${tagName}`;
+    
+    // 如果提供了tid，将其存储在元素上以便后续匹配使用
+    if (tid !== null) {
+      button.setAttribute('data-tid', tid);
+    }
 
     button.addEventListener("click", (e) => {
       e.stopPropagation(); // 阻止事件冒泡
-      addToTagNameBlacklist(tagName, cardElement);
+      // 如果有tid，优先使用tid创建{id, tname}对象
+      if (tid !== null) {
+        addToTagNameBlacklist({id: tid, tname: tagName}, cardElement);
+      } else {
+        addToTagNameBlacklist(tagName, cardElement);
+      }
     });
 
     return button;
@@ -2085,18 +2137,36 @@
   // 目前脚本中没有独立的工具函数，所以这个模块暂时为空
   // 如果后续有需要可以添加更多工具函数
   function getVideoPageState() {
-    //var initialState = unsafeWindow.__INITIAL_STATE__.channelKv; // 更改 'static' 为更具描述性的 'initialState'
-    var channelKv = window.__INITIAL_STATE__.channelKv; // 更改 'static' 为更具描述性的 'initialState'
-    //if (!channelKv) return;
-    //if (channelKv.length == 0) return;
-    channelKv.forEach(element => {
-      console.log("Id ",element.channelId," = ",element.name);
-      var subList = element.sub;
-      subList.forEach(subelement => {
-        console.log("sub Id ",subelement.tid," = ",subelement.name);
-      });
-    });
-
+    try {
+      var channelKv = unsafeWindow.__INITIAL_STATE__.channelKv;
+      if (!channelKv) return [];
+      
+      var result = [];
+      
+      // 遍历主频道
+      if (Array.isArray(channelKv)) {
+        channelKv.forEach(element => {
+          if (element.channelId && element.name) {
+            result.push({id: element.channelId, tname: element.name});
+          }
+          
+          // 遍历子频道(sub)
+          var subList = element.sub;
+          if (Array.isArray(subList)) {
+            subList.forEach(subelement => {
+              if (subelement.tid && subelement.name) {
+                result.push({id: subelement.tid, tname: subelement.name});
+              }
+            });
+          }
+        });
+      }
+      
+      return result;
+    } catch (e) {
+      console.error("[bilibili-blacklist] 获取频道数据失败:", e);
+      return [];
+    }
   }
 
   /*

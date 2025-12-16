@@ -86,41 +86,31 @@ function loadVideoDataModule() {
    * @param {HTMLElement} cardElement - 视频卡片元素。
    * @returns {boolean} 如果有任何标签被列入黑名单，则返回true，否则返回false。
    */
-  async function isCardBlacklistedByTagName(cardElement) {
-    // 获取卡片的链接以提取BV号
-    const link = getCardHrefLink(cardElement);
-    const bvId = getLinkBvId(link);
-    
-    if (!bvId) {
-      return false;
-    }
-    
-    // 获取视频的API数据
-    const data = await getBilibiliVideoApiData(bvId);
-    if (!data) {
-      return false;
-    }
-    
-    // 检查tid是否在黑名单中
-    const tid = data.tid;
-    const tid_v2 = data.tid_v2; // 如果有多个tid
-    
-    // 检查tid是否在黑名单中
-    if (tid && tagNameBlacklist.some(item => item.id == tid)) {
-      return true;
-    }
-    
-    // 如果有tid_v2，也检查它
-    if (tid_v2 && Array.isArray(tid_v2)) {
-      for (const tid_item of tid_v2) {
-        if (tagNameBlacklist.some(item => item.id == tid_item)) {
-          return true;
+  function isCardBlacklistedByTagName(cardElement) {
+    const tnameGroup = cardElement.querySelector(
+      ".bilibili-blacklist-tname-group"
+    );
+    if (tnameGroup) {
+      const tnameElements = tnameGroup.querySelectorAll(
+        ".bilibili-blacklist-tname"
+      );
+      for (const tnameElement of tnameElements) {
+        // 首先检查是否有data-tid属性，如果有则优先使用tid匹配
+        const tid = tnameElement.getAttribute('data-tid');
+        if (tid) {
+          // 使用tid进行匹配
+          if (tagNameBlacklist.some(item => item.id == tid)) {
+            return true;
+          }
+        } else {
+          // 如果没有tid，则回退到使用tname匹配
+          const tname = tnameElement.textContent.trim();
+          if (tagNameBlacklist.some(item => item.tname === tname)) {
+            return true;
+          }
         }
       }
-    } else if (tid_v2 && tagNameBlacklist.some(item => item.id == tid_v2)) {
-      return true;
     }
-    
     return false;
   }
 
@@ -194,18 +184,29 @@ function loadVideoDataModule() {
               tnameGroup.className = "bilibili-blacklist-tname-group";
               let hasTname = false;
 
-              if (data.tname) {
-                const btn = createTNameBlockButton({tname: data.tname, tid: data.tid}, card);
+              // 使用tid进行匹配，但显示tname给用户
+              if (data.tid) {
+                // 获取对应的tname用于显示
+                const displayName = getDisplayNameByTid(data.tid, data.tname);
+                const btn = createTNameBlockButton({tname: displayName, tid: data.tid}, card);
                 tnameGroup.appendChild(btn);
                 hasTname = true;
               }
-              if (data.tname_v2) {
-                const tnameElement = createTNameBlockButton(
-                  {tname: data.tname_v2, tid: data.tid}, // 使用主tid，如果需要可以改为tid_v2
-                  card
-                );
-                tnameGroup.appendChild(tnameElement);
-                hasTname = true;
+              if (data.tid_v2) {
+                // 处理多个tid的情况
+                const tidList = String(data.tid_v2).split(',');
+                const tnameList = data.tname_v2 ? String(data.tname_v2).split(',') : [];
+                
+                for (let i = 0; i < tidList.length; i++) {
+                  const tid = parseInt(tidList[i]);
+                  if (tid) {
+                    // 获取对应的tname用于显示
+                    const displayName = tnameList[i] || getTagNameById(tid) || `未知分类${tid}`;
+                    const btn = createTNameBlockButton({tname: displayName, tid: tid}, card);
+                    tnameGroup.appendChild(btn);
+                    hasTname = true;
+                  }
+                }
               }
               if (hasTname) {
                 container.appendChild(tnameGroup);
