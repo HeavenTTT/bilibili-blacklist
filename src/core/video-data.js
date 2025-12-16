@@ -61,26 +61,6 @@ function loadVideoDataModule() {
       console.error("[bilibili-blacklist] API 请求失败:", error);
     }
   }
-  // 12-14-2025 临时修复-api.bilibili.com/x/web-interface/view获取的json TName 为空
-  async function getBilibiliSearchVideoApiData(bvid) {
-    if (!bvid || bvid.length >= 24) {
-      return null;
-    }
-    const url = `https://api.bilibili.com/x/web-interface/wbi/search/type?category_id=&search_type=video&__refresh__=true&keyword=${bvid}`;
-    try {
-      const response = await fetch(url);
-      const json = await response.json();
-      console.log('s1');
-      console.log(json);
-      if (json.code === 0) {
-        return json.data;
-      } else {
-        return null;
-      }
-    } catch (error) {
-      console.error("[bilibili-blacklist] Search API 请求失败:", error);
-    }
-  }
   /**
    * 检查卡片是否包含任何黑名单标签。
    * @param {HTMLElement} cardElement - 视频卡片元素。
@@ -97,6 +77,12 @@ function loadVideoDataModule() {
       for (const tnameElement of tnameElements) {
         const tname = tnameElement.textContent.trim();
         if (tagNameBlacklist.includes(tname)) {
+          return true;
+        }
+        // 临时更新，根据V2查找名称
+        const name = getTagNameByV2(tname);
+        if (name === null) continue;
+        if (tagNameBlacklist.includes(name)) {
           return true;
         }
       }
@@ -173,7 +159,7 @@ function loadVideoDataModule() {
               const tnameGroup = document.createElement("div");
               tnameGroup.className = "bilibili-blacklist-tname-group";
               let hasTname = false;
-
+              
               if (data.tname) {
                 const btn = createTNameBlockButton(data.tname, card);
                 tnameGroup.appendChild(btn);
@@ -187,6 +173,24 @@ function loadVideoDataModule() {
                 tnameGroup.appendChild(tnameElement);
                 hasTname = true;
               }
+              //#region 临时修复，仅ID
+              if (data.tid_v2) {
+                const obj = getTagNameById(data.tid_v2);
+                if (obj) {
+                  const tnameElement = createTNameBlockButton(
+                    obj.name,
+                    card
+                  );
+                  tnameGroup.appendChild(tnameElement);
+                  const tnameElement_v2 = createTNameBlockButton(
+                    obj.name_v2,
+                    card
+                  );
+                  tnameGroup.appendChild(tnameElement_v2);
+                  hasTname = true;
+                }
+              }
+              //#endregion
               if (hasTname) {
                 container.appendChild(tnameGroup);
               }

@@ -19,6 +19,8 @@ function loadPagesModule() {
       blockMainPageAds(); // 搜索页也进行主页广告屏蔽
     } else if (isCurrentPageVideo()) {
       initializeVideoPage();
+      updateTNameList();
+      console.log(tagNameList);
     } else if (isCurrentPageCategory()) {
       initializeCategoryPage();
     } else if (isCurrentUserSpace()) {
@@ -33,8 +35,8 @@ function loadPagesModule() {
   // 监听DOMContentLoaded并检查readyState以进行早期初始化
   document.addEventListener("DOMContentLoaded", initializeScript);
   if (
-    document.readyState === "complete" ||
-    document.readyState === "interactive"
+    document.readyState === "complete" /*||
+    document.readyState === "interactive"*/
   ) {
     initializeScript();
   }
@@ -89,11 +91,9 @@ function loadPagesModule() {
     // 延迟 5 秒执行核心功能
     setTimeout(() => {
       initializeObserver("right-container"); // 观察视频播放页右侧推荐区域
-
       // 首次手动扫描和广告屏蔽
       scanAndBlockVideoCards();
       blockVideoPageAds();
-
       console.log("[bilibili-blacklist] 视频播放页屏蔽功能已启动。");
     }, 5000); // 5000 毫秒 = 5 秒
   }

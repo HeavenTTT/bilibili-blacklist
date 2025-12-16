@@ -17,7 +17,7 @@ function loadStorageModule() {
     "吃鸡",
   ]);
   // 默认标签名黑名单
-  let tagNameBlacklist = GM_getValue("tNameBlacklist", ["手机游戏"]);
+  let tagNameBlacklist = GM_getValue("tNameBlacklist", []);
 
   // 从存储中获取全局配置
   let globalPluginConfig = GM_getValue("globalConfig", {
@@ -46,11 +46,12 @@ function loadStorageModule() {
   }
 
   // 标签名列表：存储ID到名称的映射
-  let tagNameList = GM_getValue("tagNameList", []); // 默认为空数组，每个条目为 { id, name }
-
+  let tagNameList = GM_getValue("tagNameList", []); // 默认为空数组，每个条目为 { id, name , name_v2}
+  let tagListLastTime = GM_getValue("tLastTime", 0);
   // 将标签名列表保存到存储中
   function saveTagNameListToStorage() {
     GM_setValue("tagNameList", tagNameList);
+    GM_setValue("tLastTime", Date.now());
   }
 
   // 根据ID查找标签名
@@ -58,6 +59,13 @@ function loadStorageModule() {
     if (id === null || id === undefined) return null;
     // 支持字符串或数字ID
     const entry = tagNameList.find(entry => entry.id == id); // 使用宽松相等以匹配类型
-    return entry ? entry.name : null;
+    return entry ? { name: entry.name, name_v2: entry.name_v2 } : null;
+  }
+  // 根据name_v2查找标签名
+  function getTagNameByV2(name_v2) {
+    if (name_v2 === null || name_v2 === undefined) return null;
+    // 支持字符串或数字ID
+    const entry = tagNameList.find(entry => entry.name_v2 == name_v2); // 使用宽松相等以匹配类型
+    return entry ? entry.name: null;
   }
 }
