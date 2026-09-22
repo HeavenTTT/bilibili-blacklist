@@ -250,6 +250,15 @@ let videoPageProcessingStarted = false;
 function initializeVideoPage() {
   console.log("[🫥BlackList] 播放页已加载（未处理卡片先 filter 遮盖，等 header 正常后启动）。🍇");
 
+  // 0) 首次进入播放页：抑制“自动连播遇到被屏蔽视频”的处理。
+  //
+  //    用户是特意点进这个视频的（从站外点进来 / 地址栏直接打开），哪怕它命中黑名单，
+  //    也不该由插件抢先“跳过 / 停止播放”。等他真的让 B 站往下走
+  //    （点相关推荐或自动连播切到下一个视频，由 watchVideoSwitch 检测到 BV 变化）
+  //    才恢复处理。只用一个运行期标志，**不改 globalPluginConfig**
+  //    （旧版那种临时改配置、过会儿再改回来的做法已因面板显示与持久化不一致被移除）。
+  suppressAutoplaySkip = true;
+
   // 1) 进入页面：把当前已渲染的推荐卡片都标为“未处理”（filter 遮盖，不插 DOM 元素）
   markAllVideoCardsPending();
   // 广告同样先覆盖：加 pending class，由 CSS 统一罩住广告位。
@@ -300,7 +309,9 @@ function initializeVideoPage() {
 
 /**
  * 视频页在 header 完全正常后启动的完整处理：观察器 + 首次扫描 + 广告 + 连播 + 补扫。
- * 自动连播监听在此之后才初始化，因此启动阶段无需改动 flagSkipBlockedAutoplay 配置。
+ * 自动连播监听在此之后才初始化，且启动时 `suppressAutoplaySkip` 仍为 true
+ * （首次进入播放页不处理自动连播，详见 autoplay.js），因此启动阶段无需改动
+ * flagSkipBlockedAutoplay 配置。
  * 幂等：正常路径与“顶栏未出现”的兜底路径只会真正启动一次（否则会重复注册观察器与定时器）。
  */
 function startVideoPageProcessing() {
@@ -358,9 +369,10 @@ function getVideoSwitchKey() {
 }
 
 /**
- * 检测页面内切换视频（BV 变化）。变化时让广告重新进入“覆盖 → 判定”小周期。
+ * 检测页面内切换视频（BV 变化）。变化时让广告重新进入“覆盖 → 判定”小周期，
+ * 并解除“首次进入播放页不处理自动连播”的抑制（见 autoplay.js 的 suppressAutoplaySkip）。
  *
- * 只负责广告：卡片侧已有 2.5s 补扫 + 观察器增量处理，行为保持不变。
+ * 只负责广告与连播开关：卡片侧已有 2.5s 补扫 + 观察器增量处理，行为保持不变。
  * @returns {boolean} 本次调用是否刚检测到切换。
  */
 function watchVideoSwitch() {
@@ -373,6 +385,9 @@ function watchVideoSwitch() {
   }
   if (bv === lastSeenVideoBv) return false;
   lastSeenVideoBv = bv;
+  // 走到这里说明 B 站真的往下走了（用户点了相关推荐、或自动连播切到下一个视频）：
+  // 从这一刻起才允许“自动连播遇到被屏蔽视频”的处理生效。
+  suppressAutoplaySkip = false;
   console.log("[🫥BlackList] 检测到页面内切换视频，广告重新覆盖并等待新元素:", bv);
   onVideoSwitchedAds();
   return true;

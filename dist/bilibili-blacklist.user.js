@@ -4176,6 +4176,8 @@ let videoPageProcessingStarted = false;
 function initializeVideoPage() {
   console.log("[🫥BlackList] 播放页已加载（未处理卡片先 filter 遮盖，等 header 正常后启动）。🍇");
 
+  suppressAutoplaySkip = true;
+
   markAllVideoCardsPending();
   markVideoPageAdsPending();
 
@@ -4249,6 +4251,7 @@ function watchVideoSwitch() {
   }
   if (bv === lastSeenVideoBv) return false;
   lastSeenVideoBv = bv;
+  suppressAutoplaySkip = false;
   console.log("[🫥BlackList] 检测到页面内切换视频，广告重新覆盖并等待新元素:", bv);
   onVideoSwitchedAds();
   return true;
@@ -4532,6 +4535,8 @@ markVideoPageAdsPending();
 let autoplayWatchTimer = null;
 let lastSignature = "";
 let isHandling = false;
+
+let suppressAutoplaySkip = false;
 
 const CURRENT_VIDEO_TITLE_SELECTORS = [
   "h1.video-info-title",
@@ -4998,6 +5003,7 @@ function initAutoplaySkip() {
   if (autoplayWatchTimer) return;
 
   const check = async () => {
+    if (suppressAutoplaySkip) return;
     if (document.hidden) return;
     const bv = getCurrentBv();
     if (!bv) {

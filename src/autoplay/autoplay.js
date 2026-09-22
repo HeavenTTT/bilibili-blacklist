@@ -19,6 +19,24 @@ let autoplayWatchTimer = null; // 轮询定时器
 let lastSignature = ""; // 上一次检测到的“当前播放视频”特征（UP名 + 标题 + BV + 分P）
 let isHandling = false; // 防止多次处理并发
 
+/**
+ * 是否抑制本模块的处理（**有意设计，勿删**）。
+ *
+ * 为 true 时 check() 直接返回，不做任何“跳过 / 停止播放”动作。
+ *
+ * 语义：**用户主动进入播放页这一次不算数**。用户从站外点进来（或在地址栏打开）一个
+ * 被屏蔽的视频时，他是有意要看这个视频的 —— 此时插件不该抢先把它跳过或停掉。
+ * 只有当他真的让 B 站往下走了（点相关推荐 / 自动连播切到下一个视频）才恢复处理。
+ *
+ * 由 pages.js 维护：initializeVideoPage() 置 true，watchVideoSwitch() 检测到 BV
+ * 真的变化时置 false。
+ *
+ * 刻意**不复用**旧版那种「临时把 globalPluginConfig.flagSkipBlockedAutoplay 改成 "off"、
+ * 过一会儿再改回来」的做法 —— 那会让面板显示的与实际持久化的配置短暂不一致
+ * （remake 时期就是因此移除了它）。这里只用一个运行期标志，配置对象全程不动。
+ */
+let suppressAutoplaySkip = false;
+
 // 当前播放视频的标题选择器（B站标题通常为 h1）
 const CURRENT_VIDEO_TITLE_SELECTORS = [
   "h1.video-info-title",
@@ -626,6 +644,9 @@ function initAutoplaySkip() {
   if (autoplayWatchTimer) return; // 防止重复初始化
 
   const check = async () => {
+    // 首次进入播放页：不执行任何“跳过 / 停止播放”（用户是特意点进这个视频的）。
+    // 由 pages.js 在检测到真的切视频后解除抑制。
+    if (suppressAutoplaySkip) return;
     // 页面在后台：不值得每 700ms 做一整套 DOM 探测。
     // 与队列的 isPageCurrentlyActive 一致 —— 后台不做判定，避免多开页面并发请求
     // （自动连播判断会打 view / archive/related 接口）触发限流；切回前台由 visibilitychange 立即补一次。
