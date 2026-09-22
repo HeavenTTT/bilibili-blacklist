@@ -21,7 +21,6 @@
 
 **作者**：HeavenTTT
 **功能实现（AI）**：DeepSeek Harness (AI)
-**重写版来源**：`bilibili-blacklist-remake`（已冻结为只读归档，见 [`../bilibili-blacklist-remake/ARCHIVED.md`](../bilibili-blacklist-remake/ARCHIVED.md)）
 
 ---
 
@@ -264,7 +263,6 @@ MIT License.
 
 ## 🤝 致谢
 
-- **HeavenTTT** —— 原版 Bilibili-BlackList 的思路与基础实现
 - **DeepSeek Harness (AI)** —— 2.0.0 功能主体的重写实现
 - **afk666jpg** —— 主页 `index.html` 识别与悬停显示被遮挡视频（PR #12）
 - ChatGPT / Gemini / DeepSeek —— 早期版本的 AI 辅助代码生成
