@@ -309,7 +309,7 @@ function initTampermonkeyMenu() {
     if (!managerPanel) createBlacklistPanel();
     if (managerPanel) managerPanel.style.display = "flex";
   });
-  console.log(
+  blInfo(
     "[🫥BlackList] 已注册油猴菜单：显示/隐藏顶部管理按钮、打开黑名单管理面板"
   );
 }
@@ -979,6 +979,23 @@ function refreshConfigSettings() {
   netTitle.textContent = "网络与性能";
   configListElement.appendChild(netTitle);
 
+  // 插件日志级别（见 src/utils/logger.js）。错误与告警不受此项影响，永远输出。
+  configListElement.appendChild(
+    createSettingSelect(
+      "插件日志:",
+      "logLevel",
+      "控制插件往浏览器控制台输出的普通日志。错误与告警不受影响，永远输出。" +
+        "「完全关闭」= 除错误告警外不输出任何日志（默认）；" +
+        "「关键信息」= 分页初始化、自动连播跳转等用户能感知的动作；" +
+        "「全部」= 再加上缓存刷新、观察器重连、每次网络拦截等过程性细节" +
+        "（详细级走 console.debug，DevTools 需把级别切到 Verbose 才看得到）。改后立即生效。",
+      [
+        { value: "off", label: "完全关闭(默认)" },
+        { value: "info", label: "关键信息" },
+        { value: "verbose", label: "全部" },
+      ]
+    )
+  );
   configListElement.appendChild(
     createSettingToggleButton(
       "网络拦截(推荐接口)",

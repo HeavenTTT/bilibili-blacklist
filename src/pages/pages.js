@@ -66,7 +66,7 @@ function initializeScript() {
   if (globalPluginConfig.flagNetworkIntercept) {
     installNetworkInterceptors();
   }
-  console.log("[🫥BlackList] 脚本已加载🥔");
+  blInfo("[🫥BlackList] 脚本已加载🥔");
 }
 let isfirstLoad = true;// 监听DOMContentLoaded并检查readyState以进行早期初始化
 // initializeScript 内部已通过 isfirstLoad 保证只执行一次
@@ -98,7 +98,7 @@ function initializeMainPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 800);
-  console.log("[🫥BlackList] 主页已加载🍓");
+  blInfo("[🫥BlackList] 主页已加载🍓");
 }
 
 /**
@@ -121,7 +121,7 @@ function initializeDynamicPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 800);
-  console.log("[🫥BlackList] 动态页已加载📰");
+  blInfo("[🫥BlackList] 动态页已加载📰");
 }
 
 /**
@@ -147,7 +147,7 @@ function initializeSearchPage() {
   // 兜底：若翻页用的 pushState 被更早的引用绕过了我们的包装，这里靠低频比对 URL 兜住。
   // 只做一次字符串比较，开销可忽略。
   setInterval(watchSearchPageChange, 2000);
-  console.log("[🫥BlackList] 搜索页已加载🍉");
+  blInfo("[🫥BlackList] 搜索页已加载🍉");
 }
 
 /**
@@ -190,7 +190,7 @@ function watchSearchPageChange() {
   }
   if (key === lastSearchPageKey) return false;
   lastSearchPageKey = key;
-  console.log("[🫥BlackList] 搜索页翻页/条件变化，重置卡片处理状态:", key);
+  blVerbose("[🫥BlackList] 搜索页翻页/条件变化，重置卡片处理状态:", key);
   resetSearchPageCardState();
   return true;
 }
@@ -248,7 +248,7 @@ const VIDEO_PAGE_HEADER_WAIT_MS = 15000;
 let videoPageProcessingStarted = false;
 
 function initializeVideoPage() {
-  console.log("[🫥BlackList] 播放页已加载（未处理卡片先 filter 遮盖，等 header 正常后启动）。🍇");
+  blInfo("[🫥BlackList] 播放页已加载（未处理卡片先 filter 遮盖，等 header 正常后启动）。🍇");
 
   // 0) 首次进入播放页：抑制“自动连播遇到被屏蔽视频”的处理。
   //
@@ -304,7 +304,7 @@ function initializeVideoPage() {
     startVideoPageProcessing();
   }, VIDEO_PAGE_SETTLE_MS + VIDEO_PAGE_HEADER_WAIT_MS + 1000);
 
-  console.log("[🫥BlackList] 视频播放页已就绪：等待 header 正常后启动屏蔽功能。\n");
+  blVerbose("[🫥BlackList] 视频播放页已就绪：等待 header 正常后启动屏蔽功能。\n");
 }
 
 /**
@@ -342,7 +342,7 @@ function startVideoPageProcessing() {
   }, 2500);
   // 自动连播遇到被屏蔽视频时的处理
   initAutoplaySkip();
-  console.log("[🫥BlackList] 视频播放页屏蔽功能已启动（header 已正常）。🍇");
+  blInfo("[🫥BlackList] 视频播放页屏蔽功能已启动（header 已正常）。🍇");
 }
 
 // 上一次检测到的播放页 BV，用于识别页面内切换视频
@@ -388,7 +388,7 @@ function watchVideoSwitch() {
   // 走到这里说明 B 站真的往下走了（用户点了相关推荐、或自动连播切到下一个视频）：
   // 从这一刻起才允许“自动连播遇到被屏蔽视频”的处理生效。
   suppressAutoplaySkip = false;
-  console.log("[🫥BlackList] 检测到页面内切换视频，广告重新覆盖并等待新元素:", bv);
+  blVerbose("[🫥BlackList] 检测到页面内切换视频，广告重新覆盖并等待新元素:", bv);
   onVideoSwitchedAds();
   return true;
 }
@@ -460,7 +460,7 @@ function initializeCategoryPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 800);
-  console.log("[🫥BlackList] 分类页已加载🍊");
+  blInfo("[🫥BlackList] 分类页已加载🍊");
 }
 
 /**
@@ -496,7 +496,7 @@ function initializeRankingPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 600);
-  console.log("[🫥BlackList] 排行榜页已加载🏆");
+  blInfo("[🫥BlackList] 排行榜页已加载🏆");
 }
 
 /**
@@ -511,7 +511,7 @@ function isCurrentUserSpace() {
  * 初始化用户空间页特有的功能。
  */
 function initializeUserSpace() {
-  console.log("[🫥BlackList] 用户空间已加载🍎");
+  blInfo("[🫥BlackList] 用户空间已加载🍎");
   const upNameSelector = "#h-name, .nickname"; // UP主名称的选择器
   // 创建一个MutationObserver来等待UP主名称元素加载
   const observerForUpName = new MutationObserver((mutations, observer) => {

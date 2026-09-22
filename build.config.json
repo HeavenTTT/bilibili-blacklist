@@ -29,6 +29,7 @@
     "outputBase": "bilibili-blacklist.user.js",
     "modules": [
       "src/storage/storage.js",
+      "src/utils/logger.js",
       "src/utils/utils.js",
       "src/core/core.js",
       "src/core/stats.js",

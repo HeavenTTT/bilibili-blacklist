@@ -82,7 +82,7 @@ function updateTNameList() {
 
   const now = Date.now();
   if (now - tagListLastTime < TNAME_LIST_UPDATE_INTERVAL) {
-    console.log('[🫥BlackList] 标签名列表最近已更新，跳过本次更新。');
+    blVerbose('[🫥BlackList] 标签名列表最近已更新，跳过本次更新。');
     return;
   }
 
@@ -92,16 +92,16 @@ function updateTNameList() {
     return;
   }
 
-  console.log('[🫥BlackList] 获取到 ' + newList.length + ' 个标签名，开始合并更新。');
+  blInfo('[🫥BlackList] 获取到 ' + newList.length + ' 个标签名，开始合并更新。');
 
   const updated = mergeTNameListItems(newList);
 
   if (updated) {
     saveTagNameListWithTimestamp();
     tagListLastTime = now; // 更新局部变量以保持同步
-    console.log('[🫥BlackList] 分区表已更新（新增/变更 ' + updated + ' 条）并保存。');
+    blInfo('[🫥BlackList] 分区表已更新（新增/变更 ' + updated + ' 条）并保存。');
   } else {
-    console.log('[🫥BlackList] 标签名列表无变化，仅更新时间戳。');
+    blVerbose('[🫥BlackList] 标签名列表无变化，仅更新时间戳。');
     // 即使没有变化，也更新最后更新时间，避免频繁检查
     GM_setValue("tLastTime", now);
     tagListLastTime = now; // 更新局部变量以保持同步
@@ -179,18 +179,18 @@ async function updateTNameListFromFeed() {
       return;
     }
 
-    console.log(
+    blInfo(
       '[🫥BlackList] feed 接口获取到 ' + newList.length + ' 个分区条目，开始合并更新。'
     );
     const updated = mergeTNameListItems(newList);
     if (updated) {
       saveTagNameListOnly();
       tagFeedLastTime = now;
-      console.log('[🫥BlackList] feed 增量更新分区表（新增/变更 ' + updated + ' 条）并保存。');
+      blInfo('[🫥BlackList] feed 增量更新分区表（新增/变更 ' + updated + ' 条）并保存。');
     } else {
       GM_setValue("tFeedLastTime", now);
       tagFeedLastTime = now;
-      console.log('[🫥BlackList] feed 分区表无变化，仅更新时间戳。');
+      blVerbose('[🫥BlackList] feed 分区表无变化，仅更新时间戳。');
     }
   } catch (error) {
     console.error('[🫥BlackList] feed 增量更新分区表失败:', error);

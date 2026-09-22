@@ -397,7 +397,7 @@ function cancelAutoplay() {
       // 只点可见的取消连播按钮
       if (btn.getBoundingClientRect().height > 0) {
         btn.click();
-        console.log("[🫥BlackList] 相关推荐全部被屏蔽，已取消自动连播。");
+        blInfo("[🫥BlackList] 相关推荐全部被屏蔽，已取消自动连播。");
         return;
       }
     }
@@ -405,7 +405,7 @@ function cancelAutoplay() {
     // 忽略，走下方暂停兜底
   }
   pauseCurrentPlayback();
-  console.log("[🫥BlackList] 相关推荐全部被屏蔽，已停止自动连播。");
+  blInfo("[🫥BlackList] 相关推荐全部被屏蔽，已停止自动连播。");
 }
 
 /**
@@ -433,7 +433,7 @@ function tryInPageSwitch(bvid) {
   for (const attempt of attempts) {
     try {
       if (attempt()) {
-        console.log(
+        blInfo(
           `[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`
         );
         return true;
@@ -458,7 +458,7 @@ function clickRecommendCardByBv(bvid) {
       const m = href.match(/\/video\/(BV\w+)/);
       if (m && m[1] === bvid) {
         link.click();
-        console.log(
+        blInfo(
           `[🫥BlackList] 自动连播已点击未屏蔽推荐卡片: ${bvid}`
         );
         return true;

@@ -66,8 +66,8 @@ function probeInterceptPayload(url, parsed) {
     var items = null;
     if (data && Array.isArray(data.item)) items = data.item;
     else if (Array.isArray(data)) items = data;
-    console.log("[🫥BlackList][probe] 命中接口: " + url);
-    console.log(
+    blVerbose("[🫥BlackList][probe] 命中接口: " + url);
+    blVerbose(
       "[🫥BlackList][probe] data 形态: " +
         (Array.isArray(data) ? "(array, len=" + data.length + ")" : typeof data) +
         (data && !Array.isArray(data) && typeof data === "object"
@@ -75,18 +75,18 @@ function probeInterceptPayload(url, parsed) {
           : "")
     );
     if (!items || items.length === 0) {
-      console.log("[🫥BlackList][probe] 没有可分析的条目");
+      blVerbose("[🫥BlackList][probe] 没有可分析的条目");
       return;
     }
     var first = items[0];
-    console.log("[🫥BlackList][probe] 条目数=" + items.length);
-    console.log("[🫥BlackList][probe] item[0] 全部字段: " + Object.keys(first).join(","));
+    blVerbose("[🫥BlackList][probe] 条目数=" + items.length);
+    blVerbose("[🫥BlackList][probe] item[0] 全部字段: " + Object.keys(first).join(","));
     var picked = {};
     PROBE_INTERESTING_KEYS.forEach(function (k) {
       if (first[k] !== undefined) picked[k] = first[k];
     });
-    console.log("[🫥BlackList][probe] 关注字段: " + JSON.stringify(picked));
-    console.log(
+    blVerbose("[🫥BlackList][probe] 关注字段: " + JSON.stringify(picked));
+    blVerbose(
       "[🫥BlackList][probe] item[0] 原样: " +
         JSON.stringify(first).slice(0, 2000)
     );
@@ -107,7 +107,7 @@ function probeInterceptPayload(url, parsed) {
       if (it.tname || it.tname_v2) withTname++;
       if (it.is_ads || it.ad_info || it.cm_info || it.ad_cb) withAd++;
       if (it.duration !== undefined) withDuration++;
-      console.log(
+      blVerbose(
         "[🫥BlackList][probe] [" + i + "] goto=" + (it.goto || "?") +
         " tid=" + (it.tid === undefined ? "-" : it.tid) +
         " tname=" + (it.tname || it.tname_v2 || "-") +
@@ -119,7 +119,7 @@ function probeInterceptPayload(url, parsed) {
         " title=" + String(it.title || "").slice(0, 24)
       );
     }
-    console.log(
+    blVerbose(
       "[🫥BlackList][probe] 分布: goto=" + JSON.stringify(gotos) +
       " | business_info 非空=" + withBiz +
       " | tid=" + withTid +
@@ -129,7 +129,7 @@ function probeInterceptPayload(url, parsed) {
       " / 共 " + count + " 条"
     );
   } catch (e) {
-    console.log("[🫥BlackList][probe] 勘查失败: " + (e && e.message));
+    blVerbose("[🫥BlackList][probe] 勘查失败: " + (e && e.message));
   }
 }
 
@@ -255,7 +255,7 @@ function rewriteRecommendation(url, responseText) {
       countNetworkInterceptAds += streamResult.removedAds;
       countNetworkInterceptResponses++;
       refreshBlockCountDisplay();
-      console.log(
+      blVerbose(
         "[🫥BlackList] 网络拦截: 推荐流已过滤 " +
         streamResult.removed + " 条" + describeStreamReasons(streamResult.byReason)
       );
@@ -271,7 +271,7 @@ function rewriteRecommendation(url, responseText) {
       countNetworkInterceptAds += relatedResult.removedAds;
       countNetworkInterceptResponses++;
       refreshBlockCountDisplay();
-      console.log(
+      blVerbose(
         "[🫥BlackList] 网络拦截: 相关推荐已过滤 " +
         relatedResult.removed + " 条" + describeStreamReasons(relatedResult.byReason)
       );

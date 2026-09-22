@@ -49,6 +49,12 @@ const defaultGlobalPluginConfig = {
   // 2.0.0 起**默认关闭**：它会改写 B 站接口响应体（Fetch 层），属于实验性能力，
   // 保持旧版「只动 DOM、不动请求」的默认安全边界；需要时可在面板「网络与性能」里开启。
   flagNetworkIntercept: false,
+  // 插件日志级别（见 src/utils/logger.js）：
+  //   "off"     完全关闭（默认）—— 只保留错误与告警
+  //   "info"    关键信息 —— 分页初始化、用户可感知的动作结果
+  //   "verbose" 全部 —— 再加上缓存刷新 / 观察器重连 / 每次网络拦截等过程细节
+  // 注意：**错误与告警不受本项影响**，永远输出。
+  logLevel: "off",
   flagHoverReveal: false, // 启用/禁用悬停后临时显示被遮挡视频
   hoverRevealDelaySeconds: 1, // 悬停显示延迟（秒）
   processQueueInterval: 200, // 处理队列中单个卡片的延迟时间（毫秒）
@@ -80,6 +86,12 @@ const AUTOPLAY_SKIP_MODES = ["skip", "stop", "off"];
 if (!AUTOPLAY_SKIP_MODES.includes(globalPluginConfig.flagSkipBlockedAutoplay)) {
   globalPluginConfig.flagSkipBlockedAutoplay =
     defaultGlobalPluginConfig.flagSkipBlockedAutoplay;
+}
+
+// 校验/修复日志级别：只允许 "off" / "info" / "verbose"（取值表见 utils/logger.js）
+// 注意别用 LOG_LEVELS 在这里判断 —— logger.js 在 storage.js 之后求值，那时它还是 TDZ。
+if (!["off", "info", "verbose"].includes(globalPluginConfig.logLevel)) {
+  globalPluginConfig.logLevel = defaultGlobalPluginConfig.logLevel;
 }
 
 // 校验/修复数值型配置：防止历史配置或手改写入过小/过大的值

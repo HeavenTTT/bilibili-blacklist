@@ -114,11 +114,27 @@
 | 分类数据与缓存 | `flagAlwaysFetchTName` 始终获取分类标签、分类标签缓存清除、累计统计清除、`flagSkipBlockedAutoplay` 自动连播处理 |
 | 显示方式 | `blockDisplayMode` 全局遮挡模式 + `displayModeInfo/AD/TName/VideoTag/CM/Vertical` 六项按类型覆盖、`flagHideOnLoad` 加载时立即隐藏（CSS filter 遮盖） |
 | 交互 | `flagHoverReveal` 悬停后显示被遮挡视频、`hoverRevealDelaySeconds` 悬停延迟 |
-| 网络与性能 | `flagNetworkIntercept` 网络拦截（默认关闭）、`blockScanInterval` 卡片扫描间隔、`processQueueInterval` 接口请求间隔、`verticalScaleThreshold` 竖屏比例阈值 |
+| 网络与性能 | `logLevel` 插件日志（完全关闭/关键信息/全部，**默认完全关闭**）、`flagNetworkIntercept` 网络拦截（默认关闭）、`blockScanInterval` 卡片扫描间隔、`processQueueInterval` 接口请求间隔、`verticalScaleThreshold` 竖屏比例阈值 |
 
 `flagAlwaysFetchTName`（默认开启）控制「已被 UP 主名/正则/软广命中的卡片是否仍请求接口以显示分类标签按钮」：
 开启时这些请求排在低优先级的补标签队列，分类与视频标签始终可见且不拖慢其它卡片；关闭则队列更快
 （搜索页翻页尤其明显），代价是这些卡片上看不到分类标签。
+
+### 插件日志
+
+插件往控制台输出的普通日志由「插件配置 → 网络与性能 → **插件日志**」控制，三档：
+
+| 选项 | 输出内容 |
+| ---- | -------- |
+| 完全关闭（默认） | 除错误与告警外，不输出任何日志 |
+| 关键信息 | 分页初始化、脚本装载、自动连播跳转/停止等你能感知的动作 |
+| 全部 | 再加上缓存刷新、观察器重连、每次网络拦截的过滤结果等过程性细节 |
+
+- **错误与告警永远输出**，不受这个开关影响 —— 出问题时不会因为日志关了而看不到线索。
+- 改完**立即生效**，不需要刷新页面。
+- 选「全部」时详细日志走 `console.debug`，DevTools 默认的 Info 级别看不到，
+  需要把 Console 的级别切到 **Verbose**。
+- 排查问题时建议先开到「关键信息」；报 bug 时请附上该档位的控制台输出。
 
 ### 正则表达式（正则匹配标签页）
 

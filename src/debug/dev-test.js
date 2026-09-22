@@ -224,7 +224,7 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
    * @returns {string} 一行摘要。
    */
   function __probeDom() {
-    const log = (line) => console.log("[🫥BlackList][probe-dom] " + line);
+    const log = (line) => blVerbose("[🫥BlackList][probe-dom] " + line);
     log("URL=" + location.href);
     log(
       "页面判定: isMain=" + isCurrentPageMain() +
@@ -334,7 +334,7 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
       params.get("bl_probe_fields") === "1"
     ) {
       setInterceptFieldProbe(true);
-      console.log(
+      blVerbose(
         "[🫥BlackList][dev] 已打开响应字段勘查：命中推荐/相关接口时会打印字段清单"
       );
     }
@@ -349,9 +349,9 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
         if (managerPanel) {
           clearInterval(timer);
           managerPanel.style.display = "flex";
-          console.log("[🫥BlackList][dev] 已按 URL 标记自动打开管理面板");
+          blVerbose("[🫥BlackList][dev] 已按 URL 标记自动打开管理面板");
           __panelSelfCheck().forEach((line) =>
-            console.log("[🫥BlackList][dev][自检] " + line)
+            blVerbose("[🫥BlackList][dev][自检] " + line)
           );
           return;
         }
@@ -429,7 +429,7 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
 
   __applyUrlFlags();
 
-  console.log(
+  blVerbose(
     "[🫥BlackList][dev] 已注入调试/测试入口：window.__blacklistConfig / " +
     "window.__blacklistInterceptors / window.__blacklistExpose（测试方法仅在 dev 构建生效）"
   );

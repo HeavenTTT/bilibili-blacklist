@@ -203,7 +203,7 @@ function initializeObserver(containerIdOrSelector) {
   //   只有一次性的 800ms 补扫，若容器 id 与当前 B 站 DOM 不一致，观察器若一直等待
   //   就会漏掉滚动加载/翻页出现的新卡片，因此直接回退观察整篇文档，保证新卡片被捕获。
   if (isCurrentPageVideo()) {
-    console.log(
+    blVerbose(
       "[🫥BlackList] 观察容器尚未挂载，等待其出现后再观察（避免回退整页干扰 header）:",
       containerIdOrSelector
     );
@@ -254,7 +254,7 @@ function ensureObserverAttached() {
   ) {
     return false; // 首次等待尚未超时
   }
-  console.log("[🫥BlackList] 观察根节点已失效，重新绑定观察器:", observedTarget);
+  blVerbose("[🫥BlackList] 观察根节点已失效，重新绑定观察器:", observedTarget);
   contentObserver.disconnect();
   observedRoot = null;
   observerWaitStartedAt = 0;

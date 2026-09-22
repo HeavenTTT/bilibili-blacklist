@@ -55,6 +55,7 @@ const defaultGlobalPluginConfig = {
   displayModeVertical: "inherit",
   flagHeaderButton: true,
   flagNetworkIntercept: false,
+  logLevel: "off",
   flagHoverReveal: false,
   hoverRevealDelaySeconds: 1,
   processQueueInterval: 200,
@@ -82,6 +83,10 @@ const AUTOPLAY_SKIP_MODES = ["skip", "stop", "off"];
 if (!AUTOPLAY_SKIP_MODES.includes(globalPluginConfig.flagSkipBlockedAutoplay)) {
   globalPluginConfig.flagSkipBlockedAutoplay =
     defaultGlobalPluginConfig.flagSkipBlockedAutoplay;
+}
+
+if (!["off", "info", "verbose"].includes(globalPluginConfig.logLevel)) {
+  globalPluginConfig.logLevel = defaultGlobalPluginConfig.logLevel;
 }
 
 const clampNumber = (value, min, max, fallback) => {
@@ -203,6 +208,24 @@ function invalidateRegexCache() {
   regexCache.clear();
 }
 
+
+
+function isPluginLogEnabled() {
+  return globalPluginConfig.logLevel !== "off";
+}
+
+function isPluginVerboseLogEnabled() {
+  return globalPluginConfig.logLevel === "verbose";
+}
+
+function blInfo(...args) {
+  if (isPluginLogEnabled()) console.log(...args);
+}
+
+function blVerbose(...args) {
+  if (isPluginVerboseLogEnabled()) console.debug(...args);
+}
+
 const TNAME_LIST_UPDATE_INTERVAL = 12 * 60 * 60 * 1000;
 
 function getTNameListFromVideoPage() {
@@ -265,7 +288,7 @@ function updateTNameList() {
 
   const now = Date.now();
   if (now - tagListLastTime < TNAME_LIST_UPDATE_INTERVAL) {
-    console.log('[🫥BlackList] 标签名列表最近已更新，跳过本次更新。');
+    blVerbose('[🫥BlackList] 标签名列表最近已更新，跳过本次更新。');
     return;
   }
 
@@ -275,16 +298,16 @@ function updateTNameList() {
     return;
   }
 
-  console.log('[🫥BlackList] 获取到 ' + newList.length + ' 个标签名，开始合并更新。');
+  blInfo('[🫥BlackList] 获取到 ' + newList.length + ' 个标签名，开始合并更新。');
 
   const updated = mergeTNameListItems(newList);
 
   if (updated) {
     saveTagNameListWithTimestamp();
     tagListLastTime = now;
-    console.log('[🫥BlackList] 分区表已更新（新增/变更 ' + updated + ' 条）并保存。');
+    blInfo('[🫥BlackList] 分区表已更新（新增/变更 ' + updated + ' 条）并保存。');
   } else {
-    console.log('[🫥BlackList] 标签名列表无变化，仅更新时间戳。');
+    blVerbose('[🫥BlackList] 标签名列表无变化，仅更新时间戳。');
     GM_setValue("tLastTime", now);
     tagListLastTime = now;
   }
@@ -351,18 +374,18 @@ async function updateTNameListFromFeed() {
       return;
     }
 
-    console.log(
+    blInfo(
       '[🫥BlackList] feed 接口获取到 ' + newList.length + ' 个分区条目，开始合并更新。'
     );
     const updated = mergeTNameListItems(newList);
     if (updated) {
       saveTagNameListOnly();
       tagFeedLastTime = now;
-      console.log('[🫥BlackList] feed 增量更新分区表（新增/变更 ' + updated + ' 条）并保存。');
+      blInfo('[🫥BlackList] feed 增量更新分区表（新增/变更 ' + updated + ' 条）并保存。');
     } else {
       GM_setValue("tFeedLastTime", now);
       tagFeedLastTime = now;
-      console.log('[🫥BlackList] feed 分区表无变化，仅更新时间戳。');
+      blVerbose('[🫥BlackList] feed 分区表无变化，仅更新时间戳。');
     }
   } catch (error) {
     console.error('[🫥BlackList] feed 增量更新分区表失败:', error);
@@ -2127,7 +2150,7 @@ function initTampermonkeyMenu() {
     if (!managerPanel) createBlacklistPanel();
     if (managerPanel) managerPanel.style.display = "flex";
   });
-  console.log(
+  blInfo(
     "[🫥BlackList] 已注册油猴菜单：显示/隐藏顶部管理按钮、打开黑名单管理面板"
   );
 }
@@ -2717,6 +2740,22 @@ function refreshConfigSettings() {
   netTitle.textContent = "网络与性能";
   configListElement.appendChild(netTitle);
 
+  configListElement.appendChild(
+    createSettingSelect(
+      "插件日志:",
+      "logLevel",
+      "控制插件往浏览器控制台输出的普通日志。错误与告警不受影响，永远输出。" +
+        "「完全关闭」= 除错误告警外不输出任何日志（默认）；" +
+        "「关键信息」= 分页初始化、自动连播跳转等用户能感知的动作；" +
+        "「全部」= 再加上缓存刷新、观察器重连、每次网络拦截等过程性细节" +
+        "（详细级走 console.debug，DevTools 需把级别切到 Verbose 才看得到）。改后立即生效。",
+      [
+        { value: "off", label: "完全关闭(默认)" },
+        { value: "info", label: "关键信息" },
+        { value: "verbose", label: "全部" },
+      ]
+    )
+  );
   configListElement.appendChild(
     createSettingToggleButton(
       "网络拦截(推荐接口)",
@@ -3997,7 +4036,7 @@ function initializeObserver(containerIdOrSelector) {
   }
 
   if (isCurrentPageVideo()) {
-    console.log(
+    blVerbose(
       "[🫥BlackList] 观察容器尚未挂载，等待其出现后再观察（避免回退整页干扰 header）:",
       containerIdOrSelector
     );
@@ -4035,7 +4074,7 @@ function ensureObserverAttached() {
   ) {
     return false;
   }
-  console.log("[🫥BlackList] 观察根节点已失效，重新绑定观察器:", observedTarget);
+  blVerbose("[🫥BlackList] 观察根节点已失效，重新绑定观察器:", observedTarget);
   contentObserver.disconnect();
   observedRoot = null;
   observerWaitStartedAt = 0;
@@ -4089,7 +4128,7 @@ function initializeScript() {
   if (globalPluginConfig.flagNetworkIntercept) {
     installNetworkInterceptors();
   }
-  console.log("[🫥BlackList] 脚本已加载🥔");
+  blInfo("[🫥BlackList] 脚本已加载🥔");
 }
 let isfirstLoad = true;
 document.addEventListener("DOMContentLoaded", initializeScript);
@@ -4104,7 +4143,7 @@ function initializeMainPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 800);
-  console.log("[🫥BlackList] 主页已加载🍓");
+  blInfo("[🫥BlackList] 主页已加载🍓");
 }
 
 function isCurrentPageDynamic() {
@@ -4116,7 +4155,7 @@ function initializeDynamicPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 800);
-  console.log("[🫥BlackList] 动态页已加载📰");
+  blInfo("[🫥BlackList] 动态页已加载📰");
 }
 
 function isCurrentPageSearch() {
@@ -4131,7 +4170,7 @@ function initializeSearchPage() {
   lastSearchPageKey = getSearchPageKey();
   installUrlChangeWatcher(watchSearchPageChange);
   setInterval(watchSearchPageChange, 2000);
-  console.log("[🫥BlackList] 搜索页已加载🍉");
+  blInfo("[🫥BlackList] 搜索页已加载🍉");
 }
 
 function getSearchPageKey() {
@@ -4158,7 +4197,7 @@ function watchSearchPageChange() {
   }
   if (key === lastSearchPageKey) return false;
   lastSearchPageKey = key;
-  console.log("[🫥BlackList] 搜索页翻页/条件变化，重置卡片处理状态:", key);
+  blVerbose("[🫥BlackList] 搜索页翻页/条件变化，重置卡片处理状态:", key);
   resetSearchPageCardState();
   return true;
 }
@@ -4192,7 +4231,7 @@ const VIDEO_PAGE_HEADER_WAIT_MS = 15000;
 let videoPageProcessingStarted = false;
 
 function initializeVideoPage() {
-  console.log("[🫥BlackList] 播放页已加载（未处理卡片先 filter 遮盖，等 header 正常后启动）。🍇");
+  blInfo("[🫥BlackList] 播放页已加载（未处理卡片先 filter 遮盖，等 header 正常后启动）。🍇");
 
   suppressAutoplaySkip = true;
 
@@ -4226,7 +4265,7 @@ function initializeVideoPage() {
     startVideoPageProcessing();
   }, VIDEO_PAGE_SETTLE_MS + VIDEO_PAGE_HEADER_WAIT_MS + 1000);
 
-  console.log("[🫥BlackList] 视频播放页已就绪：等待 header 正常后启动屏蔽功能。\n");
+  blVerbose("[🫥BlackList] 视频播放页已就绪：等待 header 正常后启动屏蔽功能。\n");
 }
 
 function startVideoPageProcessing() {
@@ -4245,7 +4284,7 @@ function startVideoPageProcessing() {
     }
   }, 2500);
   initAutoplaySkip();
-  console.log("[🫥BlackList] 视频播放页屏蔽功能已启动（header 已正常）。🍇");
+  blInfo("[🫥BlackList] 视频播放页屏蔽功能已启动（header 已正常）。🍇");
 }
 
 let lastSeenVideoBv = "";
@@ -4270,7 +4309,7 @@ function watchVideoSwitch() {
   if (bv === lastSeenVideoBv) return false;
   lastSeenVideoBv = bv;
   suppressAutoplaySkip = false;
-  console.log("[🫥BlackList] 检测到页面内切换视频，广告重新覆盖并等待新元素:", bv);
+  blVerbose("[🫥BlackList] 检测到页面内切换视频，广告重新覆盖并等待新元素:", bv);
   onVideoSwitchedAds();
   return true;
 }
@@ -4323,7 +4362,7 @@ function initializeCategoryPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 800);
-  console.log("[🫥BlackList] 分类页已加载🍊");
+  blInfo("[🫥BlackList] 分类页已加载🍊");
 }
 
 function isCurrentPageRanking() {
@@ -4337,7 +4376,7 @@ function initializeRankingPage() {
   setTimeout(() => {
     scanAndBlockVideoCards();
   }, 600);
-  console.log("[🫥BlackList] 排行榜页已加载🏆");
+  blInfo("[🫥BlackList] 排行榜页已加载🏆");
 }
 
 function isCurrentUserSpace() {
@@ -4345,7 +4384,7 @@ function isCurrentUserSpace() {
 }
 
 function initializeUserSpace() {
-  console.log("[🫥BlackList] 用户空间已加载🍎");
+  blInfo("[🫥BlackList] 用户空间已加载🍎");
   const upNameSelector = "#h-name, .nickname";
   const observerForUpName = new MutationObserver((mutations, observer) => {
     const upNameElement = document.querySelector(upNameSelector);
@@ -4835,14 +4874,14 @@ function cancelAutoplay() {
     for (const btn of btns) {
       if (btn.getBoundingClientRect().height > 0) {
         btn.click();
-        console.log("[🫥BlackList] 相关推荐全部被屏蔽，已取消自动连播。");
+        blInfo("[🫥BlackList] 相关推荐全部被屏蔽，已取消自动连播。");
         return;
       }
     }
   } catch (e) {
   }
   pauseCurrentPlayback();
-  console.log("[🫥BlackList] 相关推荐全部被屏蔽，已停止自动连播。");
+  blInfo("[🫥BlackList] 相关推荐全部被屏蔽，已停止自动连播。");
 }
 
 function tryInPageSwitch(bvid) {
@@ -4865,7 +4904,7 @@ function tryInPageSwitch(bvid) {
   for (const attempt of attempts) {
     try {
       if (attempt()) {
-        console.log(
+        blInfo(
           `[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`
         );
         return true;
@@ -4884,7 +4923,7 @@ function clickRecommendCardByBv(bvid) {
       const m = href.match(/\/video\/(BV\w+)/);
       if (m && m[1] === bvid) {
         link.click();
-        console.log(
+        blInfo(
           `[🫥BlackList] 自动连播已点击未屏蔽推荐卡片: ${bvid}`
         );
         return true;
@@ -5095,8 +5134,8 @@ function probeInterceptPayload(url, parsed) {
     var items = null;
     if (data && Array.isArray(data.item)) items = data.item;
     else if (Array.isArray(data)) items = data;
-    console.log("[🫥BlackList][probe] 命中接口: " + url);
-    console.log(
+    blVerbose("[🫥BlackList][probe] 命中接口: " + url);
+    blVerbose(
       "[🫥BlackList][probe] data 形态: " +
         (Array.isArray(data) ? "(array, len=" + data.length + ")" : typeof data) +
         (data && !Array.isArray(data) && typeof data === "object"
@@ -5104,18 +5143,18 @@ function probeInterceptPayload(url, parsed) {
           : "")
     );
     if (!items || items.length === 0) {
-      console.log("[🫥BlackList][probe] 没有可分析的条目");
+      blVerbose("[🫥BlackList][probe] 没有可分析的条目");
       return;
     }
     var first = items[0];
-    console.log("[🫥BlackList][probe] 条目数=" + items.length);
-    console.log("[🫥BlackList][probe] item[0] 全部字段: " + Object.keys(first).join(","));
+    blVerbose("[🫥BlackList][probe] 条目数=" + items.length);
+    blVerbose("[🫥BlackList][probe] item[0] 全部字段: " + Object.keys(first).join(","));
     var picked = {};
     PROBE_INTERESTING_KEYS.forEach(function (k) {
       if (first[k] !== undefined) picked[k] = first[k];
     });
-    console.log("[🫥BlackList][probe] 关注字段: " + JSON.stringify(picked));
-    console.log(
+    blVerbose("[🫥BlackList][probe] 关注字段: " + JSON.stringify(picked));
+    blVerbose(
       "[🫥BlackList][probe] item[0] 原样: " +
         JSON.stringify(first).slice(0, 2000)
     );
@@ -5135,7 +5174,7 @@ function probeInterceptPayload(url, parsed) {
       if (it.tname || it.tname_v2) withTname++;
       if (it.is_ads || it.ad_info || it.cm_info || it.ad_cb) withAd++;
       if (it.duration !== undefined) withDuration++;
-      console.log(
+      blVerbose(
         "[🫥BlackList][probe] [" + i + "] goto=" + (it.goto || "?") +
         " tid=" + (it.tid === undefined ? "-" : it.tid) +
         " tname=" + (it.tname || it.tname_v2 || "-") +
@@ -5147,7 +5186,7 @@ function probeInterceptPayload(url, parsed) {
         " title=" + String(it.title || "").slice(0, 24)
       );
     }
-    console.log(
+    blVerbose(
       "[🫥BlackList][probe] 分布: goto=" + JSON.stringify(gotos) +
       " | business_info 非空=" + withBiz +
       " | tid=" + withTid +
@@ -5157,7 +5196,7 @@ function probeInterceptPayload(url, parsed) {
       " / 共 " + count + " 条"
     );
   } catch (e) {
-    console.log("[🫥BlackList][probe] 勘查失败: " + (e && e.message));
+    blVerbose("[🫥BlackList][probe] 勘查失败: " + (e && e.message));
   }
 }
 
@@ -5248,7 +5287,7 @@ function rewriteRecommendation(url, responseText) {
       countNetworkInterceptAds += streamResult.removedAds;
       countNetworkInterceptResponses++;
       refreshBlockCountDisplay();
-      console.log(
+      blVerbose(
         "[🫥BlackList] 网络拦截: 推荐流已过滤 " +
         streamResult.removed + " 条" + describeStreamReasons(streamResult.byReason)
       );
@@ -5263,7 +5302,7 @@ function rewriteRecommendation(url, responseText) {
       countNetworkInterceptAds += relatedResult.removedAds;
       countNetworkInterceptResponses++;
       refreshBlockCountDisplay();
-      console.log(
+      blVerbose(
         "[🫥BlackList] 网络拦截: 相关推荐已过滤 " +
         relatedResult.removed + " 条" + describeStreamReasons(relatedResult.byReason)
       );
