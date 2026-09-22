@@ -106,6 +106,21 @@
 
 ### 本版额外修复（合并时发现）
 
+- **油猴菜单「显示/隐藏顶部管理按钮」只能关、开不回来**：`addBlacklistManagerButton()` 的存在性判断用的是
+  `querySelector(...)`（只看元素在不在 DOM 里，不看是否被隐藏），而
+  `toggleHeaderButtonVisibility()` 关闭时只是 `btn.style.display = "none"` —— 元素还留在 DOM 里，
+  于是再次打开菜单时 `querySelector` 仍然命中、函数直接 `return`，那个元素永远停在隐藏状态。
+  现在关闭时**把元素摘掉**（`btn.remove()`），后续调用才能重新创建；打开时若元素不存在则补建。
+  这个 bug 在 remake 里就有，不是合并弄丢的。
+- **油猴菜单「打开黑名单管理面板」在不支持的页面上静默失效**：它只在 `managerPanel` 已存在时才动作，
+  而 `/bangumi/`、`/account/*` 这类页面会在 `initializeScript()` 创建面板之前就 `return`，
+  菜单项点了毫无反应。现在改为按需 `createBlacklistPanel()`（该函数自身幂等），任何页面都能打开面板。
+- **油猴菜单缺少授权时完全无提示**：`initTampermonkeyMenu()` 原本在
+  `typeof GM_registerMenuCommand !== "function"` 时静默 `return`，导致「菜单里没有这两项」这种情况
+  既无日志也无从判断。现在会明确 `console.warn`，并说明这是油猴在脚本更新后未重新批准新增 `@grant`
+  （1.2.4 只声明了 3 个 grant，2.0.0 才加入 `GM_registerMenuCommand`）导致的、以及解决办法
+  （删除脚本后重新安装）；注册成功时也会打一行确认日志。
+
 - **视频页顶栏管理按钮过早插入被顶掉（回归修复）**：remake 末期那次「修复顶栏管理按钮在 B 站改版后失效」
   只改了 `ui.js`，把就绪判断从 `querySelectorAll("li").length <= 6 → return`
   （**>6 个导航项才算渲染完**）放宽成 `if (!rightEntry.querySelector("a, li, .right-entry__item")) return`

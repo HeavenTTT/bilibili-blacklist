@@ -2097,21 +2097,39 @@ function addBlacklistManagerButton() {
 
 function toggleHeaderButtonVisibility() {
   const btn = document.querySelector("#bilibili-blacklist-manager-button");
-  if (btn) {
-    btn.style.display = globalPluginConfig.flagHeaderButton ? "" : "none";
+  if (globalPluginConfig.flagHeaderButton) {
+    if (btn) {
+      btn.style.display = "";
+    } else {
+      addBlacklistManagerButton();
+    }
+  } else if (btn) {
+    btn.remove();
   }
 }
 
 function initTampermonkeyMenu() {
-  if (typeof GM_registerMenuCommand !== "function") return;
+  if (typeof GM_registerMenuCommand !== "function") {
+    console.warn(
+      "[🫥BlackList] 当前未获得 GM_registerMenuCommand 授权，油猴菜单里的" +
+        "「显示/隐藏顶部管理按钮」「打开黑名单管理面板」不会出现。" +
+        "这是油猴在脚本更新后没有重新批准新增 @grant 导致的（不是脚本错误）：" +
+        "请在 Tampermonkey 里删除本脚本后重新安装一次（或在该脚本的设置里重新确认权限）。"
+    );
+    return;
+  }
   GM_registerMenuCommand("显示/隐藏顶部管理按钮", () => {
     globalPluginConfig.flagHeaderButton = !globalPluginConfig.flagHeaderButton;
     saveGlobalConfigToStorage();
     toggleHeaderButtonVisibility();
   });
   GM_registerMenuCommand("打开黑名单管理面板", () => {
+    if (!managerPanel) createBlacklistPanel();
     if (managerPanel) managerPanel.style.display = "flex";
   });
+  console.log(
+    "[🫥BlackList] 已注册油猴菜单：显示/隐藏顶部管理按钮、打开黑名单管理面板"
+  );
 }
 
 const BLOCK_STATS_GROUPS = [

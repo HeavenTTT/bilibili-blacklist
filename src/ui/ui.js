@@ -253,27 +253,65 @@ function addBlacklistManagerButton() {
 
 /**
  * 通过油猴菜单切换顶部管理按钮的显示/隐藏。
+ *
+ * ⚠️ 这里必须**双向**都生效，不能只写 style.display：
+ * `addBlacklistManagerButton()` 的存在性判断用的是 `querySelector(...)`（只看"在不在 DOM 里"，
+ * 不看是否被我隐藏），所以一旦按钮被 `display:none` 留在 DOM 里，它就会一直提前 return，
+ * 那个元素将永远停在隐藏状态 —— 表现就是「菜单能关、但再也开不回来」。
+ * 因此关闭时**把元素摘掉**，让后续 `addBlacklistManagerButton()` 能重新创建。
+ * 注意：另一个调用点 `addBlacklistManagerButton()` 内部虽然也会读同一个标志，
+ * 但它只负责「隐藏」，绝不能让它去移除元素，否则会被高频调用的兜底逻辑反复摘除/重建。
  */
 function toggleHeaderButtonVisibility() {
   const btn = document.querySelector("#bilibili-blacklist-manager-button");
-  if (btn) {
-    btn.style.display = globalPluginConfig.flagHeaderButton ? "" : "none";
+  if (globalPluginConfig.flagHeaderButton) {
+    // 打开：元素在就显示（并清掉可能残留的行内 display），不在就补建一个。
+    if (btn) {
+      btn.style.display = "";
+    } else {
+      addBlacklistManagerButton();
+    }
+  } else if (btn) {
+    // 关闭：连元素一起摘掉（只 display:none 的话就再也开不回来了，见上）。
+    btn.remove();
   }
 }
 
 /**
  * 注册 Tampermonkey 菜单项（需 @grant GM_registerMenuCommand）。
+ *
+ * ⚠️ 这里的 console 输出是**排查用的一手证据，不要删**：
+ * `GM_registerMenuCommand` 由油猴按脚本的 @grant 注入。1.2.4 只声明了 3 个 grant，
+ * 2.0.0 才加入它 —— 而 Tampermonkey 在「脚本被更新」时**不会自动重新批准新增的 @grant**，
+ * 表现就是菜单里既没有我们的项、页面上也毫无提示（旧实现在这里静默 return，
+ * 完全无从判断）。所以缺授权时明确报出来，并给出可执行的解决办法。
  */
 function initTampermonkeyMenu() {
-  if (typeof GM_registerMenuCommand !== "function") return;
+  if (typeof GM_registerMenuCommand !== "function") {
+    console.warn(
+      "[🫥BlackList] 当前未获得 GM_registerMenuCommand 授权，油猴菜单里的" +
+        "「显示/隐藏顶部管理按钮」「打开黑名单管理面板」不会出现。" +
+        "这是油猴在脚本更新后没有重新批准新增 @grant 导致的（不是脚本错误）：" +
+        "请在 Tampermonkey 里删除本脚本后重新安装一次（或在该脚本的设置里重新确认权限）。"
+    );
+    return;
+  }
   GM_registerMenuCommand("显示/隐藏顶部管理按钮", () => {
     globalPluginConfig.flagHeaderButton = !globalPluginConfig.flagHeaderButton;
     saveGlobalConfigToStorage();
     toggleHeaderButtonVisibility();
   });
   GM_registerMenuCommand("打开黑名单管理面板", () => {
+    // 按需创建：面板通常在 initializeScript() 里就建好了，但「不支持的页面」
+    // （如 /bangumi/、/account/*）会在那之前就 return，此时 managerPanel 还是
+    // undefined —— 旧写法会让这个菜单项**静默什么都不做**。这里补建一次，
+    // 让菜单在任何页面上都能打开面板（createBlacklistPanel 自身幂等）。
+    if (!managerPanel) createBlacklistPanel();
     if (managerPanel) managerPanel.style.display = "flex";
   });
+  console.log(
+    "[🫥BlackList] 已注册油猴菜单：显示/隐藏顶部管理按钮、打开黑名单管理面板"
+  );
 }
 
 /**
