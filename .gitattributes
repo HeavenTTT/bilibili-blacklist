@@ -1,2 +1,3 @@
 # Auto detect text files and perform LF normalization
-* text=auto
+# eol=lf：无论平台 / core.autocrlf 设置如何，工作区始终检出为 LF（含 .js 脚本）
+* text=auto eol=lf

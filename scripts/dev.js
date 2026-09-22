@@ -1,24 +1,17 @@
 #!/usr/bin/env node
-/**
- * Bilibili-BlackList 一键开发脚本
- * -----------------------------------------------------------
- * 功能：
- *   1. 首次构建 dist/bilibili-blacklist.user.js
- *   2. 监听 src/ 目录，代码变更后自动重新构建（防抖 150ms）
- *   3. 在 http://localhost:5173 启动静态服务器（no-cache + CORS）
- *
- * 用法：
- *   npm run dev          # 或 node scripts/dev.js
- *
- * 配合油猴加载器（只安装一次，之后永远不用再改）：
- *   test/bilibili-blacklist.dev.user.js
- *
- * 工作流程：
- *   改代码 -> 保存 -> 自动重建 -> 刷新 B 站页面，立即生效
- * -----------------------------------------------------------
- */
 'use strict';
 
+/*
+ * 一键开发脚本 —— 完全重写版
+ * -----------------------------------------------------------
+ * 沿用旧版（bilibili-blacklist/scripts/dev.js）的开发方式：
+ *   首次构建 → 监听 src/ 变化自动重建 → 本地静态服务器（no-cache + CORS）。
+ * 改进点：
+ *   1. 构建产物文件名/目录从 build.config.json 读取，不再硬编码；
+ *   2. 日志更清晰，构建失败不会破坏开发服务器；
+ *   3. 递归监听不可用时自动降级为轮询（500ms），跨平台自适应。
+ * -----------------------------------------------------------
+ */
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -27,14 +20,30 @@ const { spawn } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const SRC_DIR = path.join(ROOT, 'src');
 const PORT = Number(process.env.PORT) || 5173;
-const HOST = process.env.HOST || '127.0.0.1';
-const BUILD_URL = `http://${HOST}:${PORT}/dist/bilibili-blacklist.user.js`;
-const LOADER_URL = `http://${HOST}:${PORT}/test/bilibili-blacklist.dev.user.js`;
+// 默认双栈监听（::），同时接受 IPv4/IPv6 —— 避免浏览器把 localhost 解析到 ::1 时连接被拒
+const HOST = process.env.HOST || '::';
+const DISPLAY_HOST = process.env.HOST || 'localhost';
+
+/* 读取构建配置，得到产物文件名与目录 */
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'build.config.json'), 'utf8'));
+
+function loadBuildTarget() {
+  const outputDir = config.src.outputDir || 'dist';
+  const outputBase = config.src.outputBase || `${pkg.name}.user.js`;
+  return { outputDir, outputBase };
+}
+
+const BUILD_TARGET = loadBuildTarget();
+const BUILD_URL = `http://${DISPLAY_HOST}:${PORT}/${BUILD_TARGET.outputDir}/${BUILD_TARGET.outputBase}`;
+// 加载器文件名与 package.json 的 name 对齐：test/<name>.dev.user.js
+// （早期写法在 const pkg 之前调用 pkgName()，靠函数提升才没崩，且名字一改就指错文件）
+const LOADER_URL = `http://${DISPLAY_HOST}:${PORT}/test/${pkg.name}.dev.user.js`;
 
 /* ---------------- 构建 ---------------- */
 function build() {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [path.join(ROOT, 'build.js')], {
+    const child = spawn(process.execPath, [path.join(ROOT, 'build.js'), '--dev'], {
       cwd: ROOT,
       stdio: 'inherit',
     });
@@ -45,7 +54,7 @@ function build() {
   });
 }
 
-/* ---------------- 监听 src 变化 ---------------- */
+/* ---------------- 监听 src/ 变化 ---------------- */
 function watchSrc() {
   let timer = null;
   const scheduleRebuild = () => {
@@ -53,19 +62,17 @@ function watchSrc() {
     timer = setTimeout(() => {
       console.log('\n[dev] 检测到 src/ 变更，重新构建...');
       build()
-        .then(() => console.log('[dev] 构建完成，刷新 B 站页面即可生效\n'))
+        .then(() => console.log('[dev] 构建完成，刷新页面即可生效\n'))
         .catch((e) => console.error('[dev] 构建失败：', e.message));
     }, 150);
   };
 
-  // 优先使用递归监听（Windows / macOS 上 Node >= 19.1 支持）
   try {
     fs.watch(SRC_DIR, { recursive: true }, (_event, filename) => {
       if (filename) scheduleRebuild();
     });
     console.log('[dev] 已监听 src/ 目录（fs.watch recursive）');
   } catch (_e) {
-    // 降级方案：每 500ms 轮询文件 mtime（Linux 等不支持递归监听的平台）
     console.log('[dev] 递归监听不可用，降级为轮询模式（500ms）');
     let snapshot = '';
     const scan = () => {
@@ -76,8 +83,8 @@ function watchSrc() {
           let st;
           try {
             st = fs.statSync(p);
-          } catch (_e) {
-            continue; // 文件可能刚被删除/重命名
+          } catch (_e2) {
+            continue;
           }
           if (st.isDirectory()) walk(p);
           else parts.push(name + ':' + st.mtimeMs);
@@ -117,7 +124,6 @@ function startServer() {
     }
     if (urlPath === '/') urlPath = '/index.html';
 
-    // 防目录穿越
     const filePath = path.normalize(path.join(ROOT, urlPath));
     const insideRoot = filePath === ROOT || filePath.startsWith(ROOT + path.sep);
     if (!insideRoot) {
@@ -134,11 +140,9 @@ function startServer() {
       }
       res.writeHead(200, {
         'Content-Type': MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream',
-        // 关键：彻底禁用缓存，加载器每次都能拿到最新构建
         'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
         Pragma: 'no-cache',
         Expires: '0',
-        // 方便以后从页面环境直接 fetch 调试
         'Access-Control-Allow-Origin': '*',
       });
       res.end(data);
@@ -149,8 +153,9 @@ function startServer() {
     console.log('\n==============================================');
     console.log('[dev] 本地服务器已启动:   http://localhost:' + PORT);
     console.log('[dev] 构建产物地址:       ' + BUILD_URL);
+    console.log('[dev] 构建类型: dev（注入调试/测试入口，仅开发环境生效）');
     console.log('[dev] 油猴加载器(装一次): ' + LOADER_URL);
-    console.log('[dev] 流程: 改代码 -> 自动重建 -> 刷新B站页面');
+    console.log('[dev] 流程: 改代码 -> 自动重建 -> 刷新页面');
     console.log('==============================================\n');
   });
 }

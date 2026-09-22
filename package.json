@@ -1,10 +1,11 @@
 {
   "name": "bilibili-blacklist",
-  "version": "1.2.4",
-  "description": "Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。",
+  "version": "2.0.0",
+  "description": "Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。2.0.0 起由 AI（DeepSeek Harness）重写版合并而来，免责声明见 README。",
   "main": "build.js",
   "scripts": {
     "build": "node build.js",
+    "build:dev": "node build.js --dev",
     "dev": "node scripts/dev.js"
   },
   "repository": {
@@ -19,6 +20,9 @@
     "blacklist"
   ],
   "author": "HeavenTTT",
+  "contributors": [
+    "DeepSeek Harness (AI)"
+  ],
   "license": "MIT",
   "devDependencies": {}
 }
