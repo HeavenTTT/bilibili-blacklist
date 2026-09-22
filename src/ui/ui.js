@@ -168,6 +168,28 @@ function resolveHeaderEntryHost() {
 }
 
 /**
+ * 顶栏按钮挂载失败的自我重试（合并调度，幂等）。
+ *
+ * 只在「容器已出现但导航项还没渲染完」这一种情况下排一次重试。
+ * 因为这种情况下 B 站**不一定会再触发 DOM 变更**，观察器的
+ * `scheduleHeaderButtonRefresh()` 兜底可能等不到 mutation；只靠观察器
+ * 会让按钮一直缺席。用 `waitForContainer` 轮询到导航项出现再挂。
+ *
+ * 刻意不在「容器还没出现」时排重试：那种情况观察器兜底会覆盖，
+ * 而且视频页已有 5s 静默 + 等 `.right-entry`（最长 15s）+ 21s 强制启动那一套时序，
+ * 再叠一层轮询只会加重 header 附近的渲染竞争。
+ */
+let headerButtonRetryScheduled = false;
+function scheduleHeaderButtonRetry() {
+  if (headerButtonRetryScheduled) return;
+  headerButtonRetryScheduled = true;
+  waitForContainer(".right-entry__main, .right-entry", () => {
+    headerButtonRetryScheduled = false;
+    addBlacklistManagerButton();
+  }, 250, 15000);
+}
+
+/**
  * 将黑名单管理器按钮添加到右侧导航条。
  */
 function addBlacklistManagerButton() {
@@ -181,10 +203,19 @@ function addBlacklistManagerButton() {
   }
   // 幂等：已经挂过就直接返回，避免重复插入。
   if (rightEntry.querySelector("#bilibili-blacklist-manager-button")) return;
+  // ⚠️ 视频页的 header 时序闸门（**有意设计，勿删**）。
+  //
+  // videoHeaderReady 由 pages.js 在「5s 静默 + 轮询到 .right-entry 出现」之后置为 true；
+  // 在那之前，视频页的顶栏可能只是骨架，插进去的按钮会被随后的整块重渲染顶掉。
+  // 关键点：这个闸门必须放在**这里面**，不能只在调用点判断 ——
+  // 观察器的兜底重挂（scheduleHeaderButtonRefresh）也会调用本函数，
+  // 而它的触发时机与 5s 静默期完全无关，光靠调用点过滤拦不住它。
+  if (isCurrentPageVideo() && !videoHeaderReady) return;
   // 顶栏由 Vue 延迟渲染：容器存在 ≠ 导航项渲染完成，过早插入会被重渲染顶掉。
   // 注意**只等"有内容"**，不再用旧的「li 数量 > 6」经验值判断 —— 改版后导航项
   // 既不是 li、数量也变了，旧阈值会让本函数永远提前 return（按钮静默消失）。
   if (!rightEntry.querySelector("a, li, .right-entry__item")) {
+    scheduleHeaderButtonRetry();
     return;
   }
 

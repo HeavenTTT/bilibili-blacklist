@@ -2041,6 +2041,16 @@ function resolveHeaderEntryHost() {
   );
 }
 
+let headerButtonRetryScheduled = false;
+function scheduleHeaderButtonRetry() {
+  if (headerButtonRetryScheduled) return;
+  headerButtonRetryScheduled = true;
+  waitForContainer(".right-entry__main, .right-entry", () => {
+    headerButtonRetryScheduled = false;
+    addBlacklistManagerButton();
+  }, 250, 15000);
+}
+
 function addBlacklistManagerButton() {
   if (!globalPluginConfig.flagHeaderButton) return;
   const rightEntry = resolveHeaderEntryHost();
@@ -2049,7 +2059,9 @@ function addBlacklistManagerButton() {
     return;
   }
   if (rightEntry.querySelector("#bilibili-blacklist-manager-button")) return;
+  if (isCurrentPageVideo() && !videoHeaderReady) return;
   if (!rightEntry.querySelector("a, li, .right-entry__item")) {
+    scheduleHeaderButtonRetry();
     return;
   }
 
@@ -4051,7 +4063,9 @@ function initializeScript() {
     return;
   }
   createBlacklistPanel();
-  addBlacklistManagerButton();
+  if (!isCurrentPageVideo()) {
+    addBlacklistManagerButton();
+  }
   initTampermonkeyMenu();
   startBlockStatsFlusher();
   if (globalPluginConfig.flagNetworkIntercept) {

@@ -85,6 +85,19 @@
 
 ### 本版额外修复（合并时发现）
 
+- **视频页顶栏管理按钮过早插入被顶掉（回归修复）**：remake 末期那次「修复顶栏管理按钮在 B 站改版后失效」
+  只改了 `ui.js`，把就绪判断从 `querySelectorAll("li").length <= 6 → return`
+  （**>6 个导航项才算渲染完**）放宽成 `if (!rightEntry.querySelector("a, li, .right-entry__item")) return`
+  （**容器里有任意一个导航项就算就绪**）。旧的 `li > 6` 阈值虽然脆，却顺带挡住了视频页的过早插入；
+  放宽之后就丢掉了这层保护 —— 视频页顶栏异步渲染，脚本启动时 `.right-entry__main` 里往往已有
+  1~2 个骨架导航项，判断当场放行，按钮被插进尚未渲染完的 header，随后 Vue 重渲染整块容器把它顶掉。
+  现在：① `pages.js` 的启动阶段对视频页**不再**立即挂载（只由「5s 静默 + 等 `.right-entry` 就绪」
+  之后的回调负责）；② 闸门放进 `addBlacklistManagerButton()` **内部**
+  （`if (isCurrentPageVideo() && !videoHeaderReady) return`），因为观察器的兜底重挂
+  （`scheduleHeaderButtonRefresh`）触发时机与静默期无关，只靠调用点过滤拦不住它；
+  ③ 新增 `scheduleHeaderButtonRetry()`：容器已出现但导航项还没渲染完时，用
+  `waitForContainer(".right-entry__main, .right-entry", …, 250, 15000)` 轮询补挂 ——
+  这种状态下 B 站不一定会再触发 DOM 变更，只靠观察器兜底可能永远等不到。
 - **排行榜页识别漏了热门页**：`isCurrentPageRanking()` 原本只匹配 `/v/popular/rank`，
   漏掉 `/v/popular` 与 `/ranking`；现在用锚定前缀 `/^\/(v\/popular(\/rank.*)?|ranking)/` 覆盖。
 - **排行榜卡片只在 core.js 的选择器里**：观察器的 `INCREMENTAL_CARD_SELECTOR` 漏了
@@ -95,6 +108,9 @@
   现在提前返回只保护顶栏角标。
 - **`scripts/dev.js` 加载器地址推导顺序错误**：`LOADER_URL` 在第 38 行调用了第 40 行才定义的
   `pkgName()`，且 `pkg` 变量那时还不存在（靠函数提升才没崩）；已改为由 `package.json` 的 `name` 稳定推导。
+
+> 上面第 1 条由浏览器实测确认：在真实播放页上按钮挂载于顶栏（导航项第 2 位、`listitem "6"`），
+> 点击可正常开/关管理面板，多次点击与多次重渲染后依然在；`#bl-open-panel` 自检 20 项 PASS。
 
 ### 有意移除的旧版实现
 

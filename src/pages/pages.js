@@ -47,7 +47,19 @@ function initializeScript() {
     return; // 不支持的页面不进行初始化
   }
   createBlacklistPanel(); // 创建管理面板
-  addBlacklistManagerButton(); // 立即挂载管理按钮，避免在视频页被迟到的顶栏渲染顶掉前不可见；后续由观察器兜底
+  // 顶栏管理按钮：**视频页必须延迟挂载**，这里不能无差别立即插。
+  //
+  // 视频页（尤其带 P 列表的播放页）的顶栏是异步渲染的，脚本跑到这里时
+  // `.right-entry__main` 里往往已经塞进了 1~2 个骨架导航项 —— 而 addBlacklistManagerButton()
+  // 的就绪判断是「容器内有 a/li/.right-entry__item 即可」，会被这个骨架当场放行，
+  // 于是按钮插进一个还没渲染完的 header，随后 Vue 重渲染整个容器把它顶掉
+  // （历史 bug：cafa8b0 把旧的「li 数量 > 6」判断放宽后，就丢掉了它顺带提供的
+  //  「别在视频页过早插入」的保护）。视频页交给下面的 5 秒静默 + 等 .right-entry 就绪
+  // 流程在 header 稳定后插入（见 initializeVideoPage / startVideoPageProcessing）。
+  // 其它页面的顶栏渲染早于脚本执行，立即挂载是安全的。
+  if (!isCurrentPageVideo()) {
+    addBlacklistManagerButton();
+  }
   initTampermonkeyMenu(); // 注册油猴菜单（顶部按钮开关 / 打开管理面板）
   startBlockStatsFlusher(); // 屏蔽统计：定时把本页增量按天落盘（面板显示今日/近7天/累计）
   // 网络拦截：命中黑名单的推荐/相关条目直接在响应层过滤
