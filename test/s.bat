@@ -6,7 +6,6 @@ rem  http://localhost:5173
 rem
 rem  配合油猴加载器（只需安装一次）：
 rem  test\bilibili-blacklist.dev.user.js
-rem  之后改代码 -> 保存 -> 刷新 B 站页面，立即生效
 rem ============================================================
 cd /d "%~dp0.."
 npm run dev

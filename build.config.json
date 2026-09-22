@@ -1,0 +1,49 @@
+{
+  "userscript": {
+    "name": "Bilibili-BlackList",
+    "namespace": "https://github.com/HeavenTTT/bilibili-blacklist",
+    "author": "HeavenTTT",
+    "contributors": [
+      "DeepSeek Harness (AI)"
+    ],
+    "description": "Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。",
+    "icon": "https://www.bilibili.com/favicon.ico",
+    "match": [
+      "*://*.bilibili.com/*"
+    ],
+    "grant": [
+      "GM_setValue",
+      "GM_getValue",
+      "GM_addStyle",
+      "GM_registerMenuCommand",
+      "unsafeWindow"
+    ],
+    "license": "MIT",
+    "noframes": true,
+    "runAt": "document-idle",
+    "downloadURL": "https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.user.js",
+    "updateURL": "https://update.greasyfork.org/scripts/533940/Bilibili-BlackList.meta.js"
+  },
+  "src": {
+    "outputDir": "dist",
+    "outputBase": "bilibili-blacklist.user.js",
+    "modules": [
+      "src/storage/storage.js",
+      "src/utils/logger.js",
+      "src/utils/utils.js",
+      "src/core/core.js",
+      "src/core/stats.js",
+      "src/core/video-data.js",
+      "src/ui/ui.js",
+      "src/observer/observer.js",
+      "src/pages/pages.js",
+      "src/ads/ads.js",
+      "src/autoplay/autoplay.js",
+      "src/network/interceptor.js",
+      "src/main.js"
+    ],
+    "devModules": [
+      "src/debug/dev-test.js"
+    ]
+  }
+}

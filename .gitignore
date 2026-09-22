@@ -1,2 +1,17 @@
-Nothing should be ignored based on the provided file changes, as they only include source files (.js, .md) and no build artifacts, dependencies, or temporary files.
-test/bilibili-blacklist.dev.user.js
+# 依赖 / 虚拟环境
+node_modules/
+.venv/
+
+# 编辑器 / 工作区杂项
+.DS_Store
+*.log
+.dsh-roleplay/
+
+# 注意：dist/ 有意保持入库 —— GreasyFork 533940 的 downloadURL 指向
+# dist/bilibili-blacklist.user.js，发布时需要一并提交构建产物。
+# （旧版 .gitignore 里的 "#/dist/" 已删除）
+
+# 迁移数据 / 个人测试文档（保留在工作区，不入库）
+test/testBlackList.json
+TEST_FLOW.md
+videotest.md
