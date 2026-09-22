@@ -15,3 +15,5 @@ node_modules/
 test/testBlackList.json
 TEST_FLOW.md
 videotest.md
+greasyfork-additional-info.md
+/pics
