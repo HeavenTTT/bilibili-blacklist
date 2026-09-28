@@ -4,7 +4,7 @@
 > 覆盖主页、播放页、分类页、搜索页、排行榜、动态页与用户空间。
 > 插件大部分代码由 AI 生成，持续的 bug 反馈都很欢迎。
 
-[![Version](https://img.shields.io/badge/version-2.0.0-fb7299)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.1-fb7299)](./CHANGELOG.md)
 
 ---
 

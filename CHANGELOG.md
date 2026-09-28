@@ -1,5 +1,39 @@
 # 更新记录 (Changelog)
 
+## [2.0.1] - 修复版
+
+### 修复
+
+- **竖屏视频不再漏判**（影响「屏蔽竖屏视频」与自动连播跳过）：
+  手机竖拍的视频 B 站按「横屏尺寸 + `rotate=1`（顺时针旋转 90° 显示）」上报，
+  早期版本只取 `width/height`、忽略 `rotate`，会把这类视频算成横屏（例如
+  `1920x1080 + rotate=1` 算成 1.78）—— 于是它们既不会被屏蔽，也不会被自动连播跳过。
+  现在改为按**显示方向**换算宽高比后再比阈值；卡片判定、自动连播、网络拦截三处共用同一实现。
+- **自动连播的切换不再“假成功”**：播放器的 `changeVideo` / `switchVideo` 等方法多数返回
+  `undefined`，旧逻辑把「返回值不等于 false」当成切换成功就直接返回，既不点推荐卡片、
+  也不跳转 —— 表现就是“遇到该跳过的视频没有任何反应”。现在改为调用后核对当前 BV
+  真的变了才算成功，否则回落到「点推荐卡片 → 直接跳转」，保证最终一定离开被屏蔽的视频。
+
+### 变更
+
+- **用户空间页取消整页灰度**：空间主人命中黑名单时，旧版会给 `document.body` 加
+  `filter: grayscale(95%)`，把「我追的合集/收藏夹」里与该 UP 无关的视频一起灰掉。
+  现在只保留 UP 名旁的「已屏蔽 / 屏蔽」按钮与名字删除线，不再覆盖页面内容。
+- **dev 产物与发布产物分文件**：`npm run build:dev` 输出 `dist/bilibili-blacklist.dev.user.js`
+  （`@name` 带 ` -Dev` 后缀、不写 `@downloadURL/@updateURL`），不再覆盖入库的发布产物；
+  油猴加载器（`test/bilibili-blacklist.dev.user.js`）已同步指向新文件名。
+
+### 工程（对使用者无感，但影响后续维护）
+
+- **消除重复知识**，同类规则收敛为单一真源：屏蔽类型元数据（`src/domain/block-types.js`）、
+  配置默认值与取值约束（`src/data/settings.js`）、分类标签/视频标签/竖屏判定（`src/domain/matchers.js`）、
+  统计字段与面板设置项（由上述真源派生）。
+- **`ui.js` 拆分为 8 个模块**（styles / icons / card-buttons / overlay / header-button /
+  stats-display / panel / settings-panel），并新增 `scripts/check-bundle.js`（`npm run check`）：
+  零依赖地把构建产物装载起来做冒烟检查（整包求值、顶层声明无重复、初始化到面板建成为止）。
+- **队列异常兜底**：判定队列不再因为单张卡片的异常而永久停摆（异常时按“放行”收尾并继续）。
+- 构建产物行尾统一为 LF；构建时校验 `src/` 下每个 `.js` 都已登记，漏登记直接报错。
+
 ## [2.0.0] - 合并重写版
 
 本版把 **bilibili-blacklist-remake 0.8.0（AI 完全重写版）的全部功能合并回本工程**。
