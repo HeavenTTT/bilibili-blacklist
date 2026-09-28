@@ -14,36 +14,41 @@
 const BLOCK_STATS_STORAGE_KEY = "blockStats";
 const BLOCK_STATS_KEEP_DAYS = 30;
 const BLOCK_STATS_FLUSH_INTERVAL_MS = 5000;
-/** 落盘字段（与 core.js 的内存计数器一一对应） */
-const BLOCK_STATS_KEYS = [
-  "info",
-  "ad",
-  "cm",
-  "tname",
-  "videoTag",
-  "vertical",
-  "netItems",
-  "netAds",
-  "netResponses",
-  "processed",
-];
+
+/**
+ * 非屏蔽类型类的统计来源（info/ad/cm/tname/videoTag/vertical 这 6 个由
+ * domain/block-types.js 的注册表给出）。
+ *
+ * 「统计键 ↔ 内存计数」只在这里写一次：BLOCK_STATS_KEYS、快照初值、落盘取值、
+ * 面板明细行、dev 自检全部由它派生 —— 之前这几处各抄了一份 10 个字段的清单，
+ * 加一个统计项要改 5 个地方，而且 dev 自检会对着一份写死的文案断言。
+ */
+const BLOCK_STATS_EXTRA_SOURCES = {
+  netItems: () => countNetworkInterceptItems,
+  netAds: () => countNetworkInterceptAds,
+  netResponses: () => countNetworkInterceptResponses,
+  processed: () => countProcessedCards,
+};
+
+/** 落盘字段（顺序 = 屏蔽类型顺序 + 上面的扩展项） */
+const BLOCK_STATS_KEYS = getBlockTypeKeys().concat(
+  Object.keys(BLOCK_STATS_EXTRA_SOURCES)
+);
 
 /** { days: { "YYYY-MM-DD": {…} }, total: {…} } */
 let blockStatsStore = null;
 /** 上次刷盘时的内存计数快照（初值全 0 → 本页从加载起的增量都会入账） */
-let blockStatsSnapshot = {
-  info: 0,
-  ad: 0,
-  cm: 0,
-  tname: 0,
-  videoTag: 0,
-  vertical: 0,
-  netItems: 0,
-  netAds: 0,
-  netResponses: 0,
-  processed: 0,
-};
+let blockStatsSnapshot = createZeroBlockStatsValues();
 let blockStatsFlushTimer = null;
+
+/** 全 0 的一组统计值（字段集合与 BLOCK_STATS_KEYS 一致）。 */
+function createZeroBlockStatsValues() {
+  const values = {};
+  BLOCK_STATS_KEYS.forEach((key) => {
+    values[key] = 0;
+  });
+  return values;
+}
 
 /**
  * 当天日期键（本地时区 YYYY-MM-DD）。
@@ -91,31 +96,20 @@ function readBlockStatsFromStorage() {
 
 /** 当前内存里的各项计数 */
 function getCurrentBlockStatsValues() {
-  return {
-    info: countBlockInfo,
-    ad: countBlockAD,
-    cm: countBlockCM,
-    tname: countBlockTName,
-    videoTag: countBlockVideoTag,
-    vertical: countBlockVertical,
-    netItems: countNetworkInterceptItems,
-    netAds: countNetworkInterceptAds,
-    netResponses: countNetworkInterceptResponses,
-    processed: countProcessedCards,
-  };
+  const values = createZeroBlockStatsValues();
+  getBlockTypeKeys().forEach((type) => {
+    values[type] = getBlockCounter(type);
+  });
+  Object.keys(BLOCK_STATS_EXTRA_SOURCES).forEach((key) => {
+    values[key] = BLOCK_STATS_EXTRA_SOURCES[key]();
+  });
+  return values;
 }
 
 /** 屏蔽类计数之和（不含网络拦截/判定数） */
 function sumBlockStatsBlocked(bucket) {
   if (!bucket) return 0;
-  return (
-    (bucket.info || 0) +
-    (bucket.ad || 0) +
-    (bucket.cm || 0) +
-    (bucket.tname || 0) +
-    (bucket.videoTag || 0) +
-    (bucket.vertical || 0)
-  );
+  return getBlockTypeKeys().reduce((sum, type) => sum + (bucket[type] || 0), 0);
 }
 
 /** 只保留最近 BLOCK_STATS_KEEP_DAYS 天明细 */
@@ -155,6 +149,20 @@ function flushBlockStats() {
 }
 
 /**
+ * 本页“尚未刷盘”的增量（内存值 - 上次刷盘快照）。
+ * 面板显示与趋势柱都依赖这个公式，因此只写在这里。
+ * @returns {object} 与 BLOCK_STATS_KEYS 同字段的增量。
+ */
+function getPendingBlockStats() {
+  const current = getCurrentBlockStatsValues();
+  const pending = {};
+  BLOCK_STATS_KEYS.forEach((key) => {
+    pending[key] = (current[key] || 0) - (blockStatsSnapshot[key] || 0);
+  });
+  return pending;
+}
+
+/**
  * 汇总，供面板显示「今日 / 近 7 天 / 累计」。
  * 返回值已把"尚未刷盘的增量"计入，因此与面板上的本页计数一致。
  * @returns {{today: object, last7: object, total: object}}
@@ -162,11 +170,7 @@ function flushBlockStats() {
 function getBlockStatsSummary() {
   flushBlockStats(); // 先落一次，保证差值口径一致（无变化时是空操作）
   const store = readBlockStatsFromStorage();
-  const current = getCurrentBlockStatsValues();
-  const pending = {};
-  BLOCK_STATS_KEYS.forEach((key) => {
-    pending[key] = (current[key] || 0) - (blockStatsSnapshot[key] || 0);
-  });
+  const pending = getPendingBlockStats();
   const bucket = (src) => {
     const out = {};
     BLOCK_STATS_KEYS.forEach((key) => {
@@ -199,23 +203,16 @@ function getBlockStatsSummary() {
 function getBlockStatsDailySeries(days) {
   const store = readBlockStatsFromStorage();
   const todayKey = getBlockStatsDayKey();
-  const now = getCurrentBlockStatsValues();
+  const pending = getPendingBlockStats();
   return getRecentBlockStatsDayKeys(days).map((key) => {
     const dayBucket = store.days[key] || {};
     const isToday = key === todayKey;
-    const value = (k) =>
-      (dayBucket[k] || 0) + (isToday ? (now[k] || 0) - (blockStatsSnapshot[k] || 0) : 0);
-    return {
-      key: key,
-      blocks:
-        value("info") +
-        value("ad") +
-        value("cm") +
-        value("tname") +
-        value("videoTag") +
-        value("vertical"),
-      intercepted: value("netItems"),
-    };
+    const value = (k) => (dayBucket[k] || 0) + (isToday ? pending[k] || 0 : 0);
+    const blocks = getBlockTypeKeys().reduce(
+      (sum, type) => sum + value(type),
+      0
+    );
+    return { key: key, blocks: blocks, intercepted: value("netItems") };
   });
 }
 

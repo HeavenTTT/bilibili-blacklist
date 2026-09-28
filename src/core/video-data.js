@@ -9,6 +9,9 @@ let tnameRetriedCards = new WeakSet();
 // 记录“视频标签接口第一次无返回、已被重排回队列重试”的卡片（弱引用）。
 // 重试仍失败时按“无法确定是否安全”处理为放行（不再屏蔽）。
 let videoTagRetriedCards = new WeakSet();
+// “正在判定中”的那张主队列卡片：仅用于异常兜底（releaseCurrentQueuedCard）。
+// 出队时置为当前卡片、提交后清空，因此异常发生时它一定是“卡在半路”的那张。
+let currentQueuedCard = null;
 // 页面是否可见/前台：切到后台（document.hidden，含被其它窗口完全遮挡）时暂停队列处理，切回后继续。
 // 【有意设计，勿改】不要改成“后台也照常判定”：同时开多个 B 站页面时，多页并发请求
 // view / /x/tag/archive/tags 会明显提高触发限流的概率，暂停判定等于把并发压回单页。
@@ -91,28 +94,42 @@ async function bvApiThrottle() {
 }
 
 /**
+ * 取某个缓存 Map 里该 bvid 的未过期条目（entry，不是 data）。
+ * view 与视频标签两个接口共用同一套「取缓存」语义：命中缓存不计次数、不限速。
+ * @param {Map} cache
+ * @param {string} bvid
+ * @returns {{data: object|null, expire: number}|null}
+ */
+function getCachedEntry(cache, bvid) {
+  if (!bvid) return null;
+  const cached = cache.get(bvid);
+  return cached && Date.now() < cached.expire ? cached : null;
+}
+
+/**
  * 判断某个 BV 是否已有未过期的接口缓存。
  * 用于决定本轮是否真的发生了网络请求 —— 只有真正请求了才需要限速等待。
  * @param {string} bvid
  * @returns {boolean}
  */
 function hasFreshBvApiCache(bvid) {
-  if (!bvid) return false;
-  const cached = bvApiDataCache.get(bvid);
-  return !!(cached && Date.now() < cached.expire);
+  return !!getCachedEntry(bvApiDataCache, bvid);
 }
 
-async function getBilibiliVideoApiData(bvid) {
-  if (!bvid || bvid.length >= 24) {
-    return null;
-  }
-  const cached = bvApiDataCache.get(bvid);
-  if (cached && Date.now() < cached.expire) {
-    return cached.data;
-  }
+/**
+ * B 站接口请求的唯一出口：限速 → 计数 → 带超时地 fetch 并解析 JSON。
+ *
+ * view / 视频标签 / 自动连播的相关推荐兜底都走这里，因此「5 秒超时 + 50ms 最小间隔」
+ * 不可能只在某一处生效 —— 之前两个接口各自抄了一份 40 行的骨架，而自动连播的裸 fetch
+ * 既没有超时也没有限速（与模块自身的防限流约定冲突）。
+ * @param {string} url
+ * @param {() => void} [onRequest] 真实请求发出时的计数回调（命中缓存不会走到这里）。
+ * @param {string} errorLabel 出错日志前缀。
+ * @returns {Promise<object|null>} 解析后的 JSON；请求失败 / 超时 / 解析失败返回 null。
+ */
+async function requestBiliApiJson(url, onRequest, errorLabel) {
   await bvApiThrottle(); // 连续调用防限流
-  countApiViewRequests++; // 统计：真实发出的 view 请求（命中缓存不会走到这里）
-  const url = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
+  if (onRequest) onRequest();
   const controller =
     typeof AbortController === "function" ? new AbortController() : null;
   const timeoutTimer = controller
@@ -123,32 +140,52 @@ async function getBilibiliVideoApiData(bvid) {
       url,
       controller ? { signal: controller.signal } : undefined
     );
-    const json = await response.json();
-    if (json.code === 0) {
-      bvApiDataCache.set(bvid, {
-        data: json.data,
-        expire: Date.now() + BV_API_CACHE_TTL,
-      });
-      return json.data;
-    }
-    return null;
+    return await response.json();
   } catch (error) {
-    // 修复：原实现在 catch 里没有 return，网络异常时返回 undefined，
-    // 会落到调用方的“解析失败”分支被当成应屏蔽处理，导致网络抖动时大面积误屏蔽。
-    console.error("[🫥BlackList] API 请求失败:", error);
+    // 必须 return null：曾经这里漏了 return，网络异常时返回 undefined，
+    // 会被调用方的“解析失败”分支当成应屏蔽处理，导致网络抖动时大面积误屏蔽。
+    console.error(errorLabel, error);
     return null;
   } finally {
     if (timeoutTimer) clearTimeout(timeoutTimer);
   }
 }
 
+/**
+ * 使用BV ID从Bilibili API获取视频信息。
+ * @param {string} bvid - 视频的BV ID。
+ * @returns {Promise<object|null>} 解析为视频数据或null的Promise。
+ */
+async function getBilibiliVideoApiData(bvid) {
+  if (!bvid || bvid.length >= 24) {
+    return null;
+  }
+  const cached = getCachedEntry(bvApiDataCache, bvid);
+  if (cached) {
+    return cached.data;
+  }
+  const json = await requestBiliApiJson(
+    `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`,
+    () => {
+      countApiViewRequests++; // 统计：真实发出的 view 请求（命中缓存不会走到这里）
+    },
+    "[🫥BlackList] API 请求失败:"
+  );
+  if (json && json.code === 0) {
+    bvApiDataCache.set(bvid, {
+      data: json.data,
+      expire: Date.now() + BV_API_CACHE_TTL,
+    });
+    return json.data;
+  }
+  return null;
+}
+
 // BV -> 视频标签接口数据缓存（10 分钟）
 const bvTagApiDataCache = new Map();
 
 function hasFreshBvTagApiCache(bvid) {
-  if (!bvid) return false;
-  const cached = bvTagApiDataCache.get(bvid);
-  return !!(cached && Date.now() < cached.expire);
+  return !!getCachedEntry(bvTagApiDataCache, bvid);
 }
 
 /**
@@ -160,39 +197,26 @@ async function getBilibiliVideoTagApiData(bvid) {
   if (!bvid || bvid.length >= 24) {
     return null;
   }
-  const cached = bvTagApiDataCache.get(bvid);
-  if (cached && Date.now() < cached.expire) {
+  const cached = getCachedEntry(bvTagApiDataCache, bvid);
+  if (cached) {
     return cached.data;
   }
-  await bvApiThrottle(); // 连续调用防限流
-  countApiTagRequests++; // 统计：真实发出的视频标签请求（命中缓存不会走到这里）
-  const url = `https://api.bilibili.com/x/tag/archive/tags?bvid=${encodeURIComponent(bvid)}`;
-  const controller =
-    typeof AbortController === "function" ? new AbortController() : null;
-  const timeoutTimer = controller
-    ? setTimeout(() => controller.abort(), BV_API_TIMEOUT_MS)
-    : null;
-  try {
-    const response = await fetch(
-      url,
-      controller ? { signal: controller.signal } : undefined
-    );
-    const json = await response.json();
-    if (json.code === 0 && Array.isArray(json.data)) {
-      const data = { videoTags: json.data };
-      bvTagApiDataCache.set(bvid, {
-        data,
-        expire: Date.now() + BV_API_CACHE_TTL,
-      });
-      return data;
-    }
-    return null;
-  } catch (error) {
-    console.error("[🫥BlackList] 视频标签 API 请求失败:", error);
-    return null;
-  } finally {
-    if (timeoutTimer) clearTimeout(timeoutTimer);
+  const json = await requestBiliApiJson(
+    `https://api.bilibili.com/x/tag/archive/tags?bvid=${encodeURIComponent(bvid)}`,
+    () => {
+      countApiTagRequests++; // 统计：真实发出的视频标签请求（命中缓存不会走到这里）
+    },
+    "[🫥BlackList] 视频标签 API 请求失败:"
+  );
+  if (json && json.code === 0 && Array.isArray(json.data)) {
+    const data = { videoTags: json.data };
+    bvTagApiDataCache.set(bvid, {
+      data,
+      expire: Date.now() + BV_API_CACHE_TTL,
+    });
+    return data;
   }
+  return null;
 }
 
 /**
@@ -233,55 +257,14 @@ function getEligibleVideoTags(data) {
   return result;
 }
 
-/**
- * 返回卡片上第一个命中分类黑名单的标签名。
- *
- * 对卡片标签组里的每个标签按钮逐个判定：
- *   标签文本本身在 tagNameBlacklist，或按 V2 映射出的名称在黑名单中 → 视为命中。
- * 返回的标签名用于：屏蔽原因按钮显示具体内容、以及“取消屏蔽”时从黑名单删除该规则。
- * @param {HTMLElement} cardElement - 视频卡片元素。
- * @returns {string|null} 命中的标签名，没有则返回 null。
- */
-function getBlacklistedTagName(cardElement) {
-  const tnameGroup = cardElement.querySelector(
-    ".bilibili-blacklist-tname-group"
-  );
-  if (!tnameGroup) return null;
-  const tnameElements = tnameGroup.querySelectorAll(
-    ".bilibili-blacklist-tname"
-  );
-  for (const tnameElement of tnameElements) {
-    const tname = tnameElement.textContent.trim();
-    if (!tname) continue;
-    let matched = null;
-    if (tagNameBlacklist.includes(tname)) {
-      matched = tname;
-    } else {
-      // 临时更新，根据V2查找名称
-      const name = getTagNameByV2(tname);
-      if (name !== null && tagNameBlacklist.includes(name)) {
-        matched = name;
-      }
-    }
-    if (matched === null) continue;
-    return matched;
-  }
-  return null;
-}
-
-/**
- * 检查卡片是否包含任何黑名单标签（放行感知）。
- * @param {HTMLElement} cardElement - 视频卡片元素。
- * @returns {boolean} 如果有任何标签被列入黑名单，则返回true，否则返回false。
- */
-function isCardBlacklistedByTagName(cardElement) {
-  return !!getBlacklistedTagName(cardElement);
-}
+// 分类标签 / 视频标签 / 竖屏的命中判定（DOM 与接口数据两种形态）
+// 已统一到 domain/matchers.js：matchTNameInCard / matchVideoTagInCard /
+// matchTNameInData / matchVideoTagInData / isVerticalVideo。
 
 /**
  * 给标签组添加一个“汇总按钮 + 悬停浮层”：只显示一个「分类 N / 标签 M」按钮，
  * 数量为 0 时不添加；悬停/点击该按钮时，在卡片内弹出浮层展示该类别的全部标签。
- * 浮层作为标签组的子元素，内部按钮仍能被 getBlacklistedTagName/getBlacklistedVideoTag 匹配。
+ * 浮层作为标签组的子元素，内部按钮仍能被 matchTNameInCard / matchVideoTagInCard 匹配。
  * @param {HTMLElement} group - .bilibili-blacklist-tname-group 容器。
  * @param {string} label - 汇总按钮文案前缀（如“分类”/“标签”）。
  * @param {HTMLElement[]} buttons - 该类别的按钮元素（会被移入浮层）。
@@ -352,24 +335,6 @@ function addTagSummary(group, label, buttons, color, card) {
       show();
     }
   });
-}
-
-/**
- * 返回卡片上第一个命中的视频标签黑名单项。
- * @param {HTMLElement} cardElement - 视频卡片元素。
- * @returns {string|null} 命中的视频标签名，没有则返回 null。
- */
-function getBlacklistedVideoTag(cardElement) {
-  const videoTagElements = cardElement.querySelectorAll(
-    ".bilibili-blacklist-video-tag"
-  );
-  for (const videoTagElement of videoTagElements) {
-    const tagName = (videoTagElement.textContent || "").trim();
-    if (tagName && videoTagBlacklist.includes(tagName)) {
-      return tagName;
-    }
-  }
-  return null;
 }
 
 /**
@@ -487,9 +452,99 @@ async function attachTNameGroupToCard(card, bvId) {
  * 已在阶段 A 命中的卡片，若开启 flagAlwaysFetchTName（默认开），会被放进低优先级的
  * “补标签队列”，等主队列判定完再补请求，保证标签按钮始终可见但不拖慢其它卡片的判定。
  */
-async function processVideoCardQueue() {
+function processVideoCardQueue() {
   if (isVideoCardQueueProcessing) return;
   isVideoCardQueueProcessing = true;
+  // 用 .catch/.finally 收口，而不是在函数体各处复位标志：
+  // 任何未预期的异常（DOM 结构变化、接口返回形态变化…）都必须让
+  // isVideoCardQueueProcessing 复位，否则队列会**永久停摆** —— 表现是所有卡片停在
+  // “未处理”的模糊遮盖态且再也不判定，控制台只留下一条容易被忽略的 rejection。
+  return runVideoCardQueueLoop()
+    .catch((error) => {
+      console.error(
+        "[🫥BlackList] 卡片队列处理中断，剩余卡片将在下次扫描/页面变化时继续:",
+        error
+      );
+      releaseCurrentQueuedCard(); // 正在判定的那张按放行收尾
+    })
+    .finally(() => {
+      currentQueuedCard = null;
+      isVideoCardQueueProcessing = false;
+      refreshBlockCountDisplay();
+      // 处理队列为空：触发分区表 feed 增量更新（popular / ranking，12 小时节流，内部自行判断）。
+      updateTNameListFromFeed();
+    });
+}
+
+/**
+ * 队列因异常中断时，把“正在判定的那张卡片”按放行收尾。
+ *
+ * 为什么需要它：卡片出队时已从队列移除、直到提交才标记为已处理；若中途抛错就再也没人处理它 ——
+ * 它会永远停在“未处理”的模糊遮盖态（processCard 的 queuedRealCards 去重表也不会再放行同一张卡）。
+ * 处理口径与模块既有策略一致：无法确定是否安全时按放行处理。
+ */
+function releaseCurrentQueuedCard() {
+  const card = currentQueuedCard;
+  currentQueuedCard = null;
+  if (!card) return;
+  const realCard = getRealVideoCardElement(card) || card;
+  clearPendingFilter(card);
+  unmarkBlockedCard(realCard);
+  removeBlockReason(card);
+  removeKirbyOverlay(card);
+  if (realCard) {
+    realCard.style.display = "block";
+    realCard.style.visibility = "visible";
+  }
+  processedVideoCards.add(realCard);
+  countProcessedCards++; // 与正常提交口径一致：这张卡片也算“走完流程”（按放行）
+}
+
+/**
+ * 用（通常已缓存的）接口数据 + 卡片上的标签按钮判定 tname / videoTag / 竖屏。
+ * 首次挂标签与“取消屏蔽后重判”两条路径共用同一套判定，避免两处各写一遍后漂移。
+ * 纯判定、无副作用；不涉及“重试一次”的策略（那由调用方按各自场景决定）。
+ * @param {HTMLElement} card - 视频卡片元素。
+ * @param {object} data - view / tag 接口合并后的数据。
+ * @returns {{matchedTName: string|null, matchedVideoTag: string|null, isVertical: boolean}}
+ */
+function evaluateTagAndShape(card, data) {
+  return {
+    matchedTName: isBlockTypeEnabled("tname") ? matchTNameInCard(card) : null,
+    matchedVideoTag: isBlockTypeEnabled("videoTag")
+      ? matchVideoTagInCard(card)
+      : null,
+    isVertical: isBlockTypeEnabled("vertical") ? isVerticalVideo(data) : false,
+  };
+}
+
+/**
+ * 把卡片放回队尾重试一次。
+ *
+ * 三个重试点（视频标签接口无返回 / 分类标签没解析出 / 接口整体无返回）规则完全相同：
+ * 每个 WeakSet 只放行一次，第二次仍失败就交给调用方的“按放行处理”分支。
+ * @param {HTMLElement} card
+ * @param {WeakSet} retriedSet 该重试原因对应的“已重试过”记录。
+ * @param {boolean} usedNetwork 本轮是否真的发过请求（决定要不要限速等待）。
+ * @returns {Promise<boolean>} true = 已重排，调用方应结束本卡处理（continue）。
+ */
+async function requeueForRetry(card, retriedSet, usedNetwork) {
+  if (retriedSet.has(card)) return false;
+  retriedSet.add(card);
+  videoCardProcessQueue.add(card); // 加入队列最后（重新出队时排到最后）
+  if (usedNetwork) {
+    await sleep(globalPluginConfig.processQueueInterval);
+  }
+  return true;
+}
+
+/**
+ * 串行消费卡片队列（processVideoCardQueue 的实际循环）。
+ *
+ * 单独成函数是为了让 processVideoCardQueue 能用 .catch/.finally 兜住异常，
+ * 同时不必把两百多行循环体整体缩进一层 —— 行为与旧实现逐行等价。
+ */
+async function runVideoCardQueueLoop() {
   let localDecisionStreak = 0; // 连续“零网络判定”的卡片数，用于定期让出主线程
 
   while (videoCardProcessQueue.size > 0 || tnameDecorateQueue.size > 0) {
@@ -499,6 +554,7 @@ async function processVideoCardQueue() {
       continue;
     }
 
+    currentQueuedCard = null; // 补标签阶段不涉及主队列卡片，异常兜底不应回滚它
     // ===== 补标签队列：优先级最低，只有主队列空了才处理 =====
     if (videoCardProcessQueue.size === 0) {
       const decorateIterator = tnameDecorateQueue.values();
@@ -535,6 +591,9 @@ async function processVideoCardQueue() {
     if (card.isConnected === false) {
       continue;
     }
+    // 跳过上面两种情况时不登记“当前卡片”：异常兜底只允许回滚真正开始判定的那张，
+    // 否则可能把一张已提交（甚至已屏蔽）的卡片当成“卡在半路”而撤销它。
+    currentQueuedCard = card;
 
     let usedNetwork = false; // 本轮是否真的发起了网络请求（决定是否需要限速等待）
     let shouldHide = false;
@@ -552,7 +611,7 @@ async function processVideoCardQueue() {
     // 依据 UP 名/标题判定：只要解析到其中一个就参与判定（空 UP 名也能用正则匹标题，
     // 标题解析失败也能用 UP 名精确匹配）。两者都解析不到则交给阶段 B，避免误伤。
     // 精确匹配优先；命中即记录具体 UP 名（显示与取消用）。正则无法定位具体规则，记录哨兵值。
-    if (!shouldHide && globalPluginConfig.flagInfo && (upName || videoTitle)) {
+    if (!shouldHide && isBlockTypeEnabled("info") && (upName || videoTitle)) {
       const exactMatch = getExactBlacklistMatch(upName);
       if (exactMatch) {
         shouldHide = true;
@@ -570,9 +629,9 @@ async function processVideoCardQueue() {
     // ===== 阶段 B：网络判定（分类标签 / 竖屏）=====
     if (
       !shouldHide &&
-      (globalPluginConfig.flagTName ||
-        globalPluginConfig.flagVideoTag ||
-        globalPluginConfig.flagVertical) &&
+      (isBlockTypeEnabled("tname") ||
+        isBlockTypeEnabled("videoTag") ||
+        isBlockTypeEnabled("vertical")) &&
       bvId
     ) {
       if (hasTNameGroup) {
@@ -583,35 +642,20 @@ async function processVideoCardQueue() {
         usedNetwork = result.usedNetwork;
         const data = result.data;
         if (data) {
-          const matchedTag = globalPluginConfig.flagTName
-            ? getBlacklistedTagName(card)
-            : null;
-          if (matchedTag) {
+          const facts = evaluateTagAndShape(card, data);
+          if (facts.matchedTName) {
             shouldHide = true;
             blockType = "tname";
-            blockReasonValue = matchedTag;
+            blockReasonValue = facts.matchedTName;
           }
-          const matchedVideoTag = globalPluginConfig.flagVideoTag
-            ? getBlacklistedVideoTag(card)
-            : null;
-          if (!shouldHide && matchedVideoTag) {
+          if (!shouldHide && facts.matchedVideoTag) {
             shouldHide = true;
             blockType = "videoTag";
-            blockReasonValue = matchedVideoTag;
+            blockReasonValue = facts.matchedVideoTag;
           }
-          // 如果启用了垂直视频屏蔽
-          if (
-            !shouldHide &&
-            globalPluginConfig.flagVertical &&
-            data.dimension &&
-            data.dimension.width &&
-            data.dimension.height
-          ) {
-            const dimension = data.dimension.width / data.dimension.height;
-            if (dimension < globalPluginConfig.verticalScaleThreshold) {
-              shouldHide = true;
-              blockType = "vertical";
-            }
+          if (!shouldHide && facts.isVertical) {
+            shouldHide = true;
+            blockType = "vertical";
           }
         }
         // data 为 null（缓存过期且请求失败）：不重试、不误屏蔽，按未命中处理。
@@ -622,89 +666,50 @@ async function processVideoCardQueue() {
         const data = result.data;
 
         if (data) {
-          const matchedTag = globalPluginConfig.flagTName
-            ? getBlacklistedTagName(card)
-            : null;
-          if (matchedTag) {
+          const facts = evaluateTagAndShape(card, data);
+          if (facts.matchedTName) {
             shouldHide = true;
             blockType = "tname";
-            blockReasonValue = matchedTag;
+            blockReasonValue = facts.matchedTName;
           }
-          const matchedVideoTag = globalPluginConfig.flagVideoTag
-            ? getBlacklistedVideoTag(card)
-            : null;
-          if (!shouldHide && matchedVideoTag) {
+          if (!shouldHide && facts.matchedVideoTag) {
             shouldHide = true;
             blockType = "videoTag";
-            blockReasonValue = matchedVideoTag;
+            blockReasonValue = facts.matchedVideoTag;
           }
           // 视频标签接口无返回：重排到队尾重试一次，再次失败则放行（不再屏蔽）。
-          if (
-            globalPluginConfig.flagVideoTag &&
-            !shouldHide &&
-            result.videoTagFailed
-          ) {
-            if (!videoTagRetriedCards.has(card)) {
-              videoTagRetriedCards.add(card);
-              videoCardProcessQueue.add(card); // 加入队列最后（重新出队时排到最后）
-              if (usedNetwork) {
-                await sleep(globalPluginConfig.processQueueInterval);
-              }
-              continue;
-            }
+          if (isBlockTypeEnabled("videoTag") && !shouldHide && result.videoTagFailed) {
+            if (await requeueForRetry(card, videoTagRetriedCards, usedNetwork)) continue;
             console.warn(
               "[🫥BlackList] 视频标签接口无返回，按放行处理:",
               bvId
             );
           }
           // 如果启用了垂直视频屏蔽
-          if (
-            !shouldHide &&
-            globalPluginConfig.flagVertical &&
-            data.dimension &&
-            data.dimension.width &&
-            data.dimension.height
-          ) {
-            const dimension = data.dimension.width / data.dimension.height;
-            if (dimension < globalPluginConfig.verticalScaleThreshold) {
-              shouldHide = true;
-              blockType = "vertical";
-            }
+          if (!shouldHide && facts.isVertical) {
+            shouldHide = true;
+            blockType = "vertical";
           }
 
           // 开启了 tname 却没能解析出任何分类标签（数据缺失/结构变化）：
           // 重排到队尾重试一次，再次失败则放行（不再按屏蔽处理）。
-          if (globalPluginConfig.flagTName && !shouldHide && !result.tnameResolved) {
-            if (!tnameRetriedCards.has(card)) {
-              tnameRetriedCards.add(card);
-              videoCardProcessQueue.add(card); // 加入队列最后
-              if (usedNetwork) {
-                await sleep(globalPluginConfig.processQueueInterval);
-              }
-              continue;
-            }
+          if (isBlockTypeEnabled("tname") && !shouldHide && !result.tnameResolved) {
+            if (await requeueForRetry(card, tnameRetriedCards, usedNetwork)) continue;
             console.warn(
               "[🫥BlackList] 分类标签解析失败，按放行处理:",
               bvId
             );
           }
         } else if (
-          globalPluginConfig.flagTName ||
-          globalPluginConfig.flagVideoTag
+          isBlockTypeEnabled("tname") ||
+          isBlockTypeEnabled("videoTag")
         ) {
           // 接口返回 null（请求失败/超时/限流/BV无效）：分类/视频标签解析失败。
           // 重排到队尾重试一次，再次失败则按放行处理（不再屏蔽）。
-          const retriedSet = globalPluginConfig.flagTName
+          const retriedSet = isBlockTypeEnabled("tname")
             ? tnameRetriedCards
             : videoTagRetriedCards;
-          if (!retriedSet.has(card)) {
-            retriedSet.add(card);
-            videoCardProcessQueue.add(card); // 加入队列最后
-            if (usedNetwork) {
-              await sleep(globalPluginConfig.processQueueInterval);
-            }
-            continue;
-          }
+          if (await requeueForRetry(card, retriedSet, usedNetwork)) continue;
           console.warn(
             "[🫥BlackList] 分类/视频标签接口均无返回，按放行处理:",
             bvId
@@ -714,7 +719,7 @@ async function processVideoCardQueue() {
     } else if (
       shouldHide &&
       globalPluginConfig.flagAlwaysFetchTName &&
-      (globalPluginConfig.flagTName || globalPluginConfig.flagVideoTag) &&
+      (isBlockTypeEnabled("tname") || isBlockTypeEnabled("videoTag")) &&
       bvId &&
       !hasTNameGroup
     ) {
@@ -743,6 +748,7 @@ async function processVideoCardQueue() {
 
     processedVideoCards.add(realCardKey); // 标记卡片已处理（键为真实卡片元素）
     countProcessedCards++; // 统计：累计判定完成的卡片数
+    currentQueuedCard = null; // 本卡已提交，异常兜底不再回滚它
 
     // 只有真正发生网络请求时才限速：纯本地命中的卡片立即处理下一张。
     // （旧实现对每张卡片无差别 sleep 200ms，一页 30 张仅等待就要 6 秒。）
@@ -757,10 +763,6 @@ async function processVideoCardQueue() {
       await sleep(0);
     }
   }
-  isVideoCardQueueProcessing = false;
-  refreshBlockCountDisplay();
-  // 处理队列为空：触发分区表 feed 增量更新（popular / ranking，12 小时节流，内部自行判断）。
-  updateTNameListFromFeed();
 }
 
 // 异步等待函数

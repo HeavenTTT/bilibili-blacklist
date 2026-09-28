@@ -21,10 +21,12 @@
   'use strict';
 
   // 127.0.0.1 优先（保证 IPv4），localhost 作为备用（双栈下等价）
+  // 注意：dev 构建的产物名与发布产物不同（dist/bilibili-blacklist.dev.user.js），
+  // 这样 `npm run dev` 不会覆盖入库的发布产物。
   var TS = Date.now();
   var DEV_URLS = [
-    'http://127.0.0.1:5173/dist/bilibili-blacklist.user.js?t=' + TS,
-    'http://localhost:5173/dist/bilibili-blacklist.user.js?t=' + TS
+    'http://127.0.0.1:5173/dist/bilibili-blacklist.dev.user.js?t=' + TS,
+    'http://localhost:5173/dist/bilibili-blacklist.dev.user.js?t=' + TS
   ];
   var MAX_ATTEMPTS = 6;
 

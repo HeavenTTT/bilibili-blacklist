@@ -22,15 +22,23 @@ const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'build.config.json'), 
 const { userscript = {}, src = {} } = config;
 const VERSION = pkg.version;
 const outputDir = path.join(ROOT, src.outputDir || 'dist');
-const outputBase = src.outputBase || `${pkg.name}.user.js`;
+const releaseOutputBase = src.outputBase || `${pkg.name}.user.js`;
+/* dev 产物必须与发布产物**分开文件**：
+ * 两者同名会互相覆盖，而 dist/ 是有意入库的（GreasyFork 的 downloadURL 指向发布产物），
+ * 于是跑一次 `npm run build:dev` / `npm run dev` 就能把带 window.__blacklistExpose 的
+ * 调试版写进发布渠道，且很难在 diff 里发现。 */
+const devOutputBase = src.devOutputBase || `${pkg.name}.dev.user.js`;
 const modules = Array.isArray(src.modules) ? src.modules : [];
 const devModules = Array.isArray(src.devModules) ? src.devModules : [];
 const isDevBuild = process.argv.includes('--dev');
+const outputBase = isDevBuild ? devOutputBase : releaseOutputBase;
 
 /* 生成 userscript 元数据头 */
 function buildHeader() {
   const meta = {
-    name: userscript.name || pkg.name,
+    // dev 产物带 -Dev 后缀：装进油猴后与正式版是两个独立脚本，不会互相覆盖，
+    // 也便于一眼分辨当前跑的是哪个构建。
+    name: (userscript.name || pkg.name) + (isDevBuild ? ' -Dev' : ''),
     namespace: userscript.namespace || '',
     version: VERSION,
     author: userscript.author || pkg.author,
@@ -41,8 +49,10 @@ function buildHeader() {
     license: userscript.license || pkg.license,
     noframes: userscript.noframes === true,
     'run-at': userscript.runAt || '',
-    downloadURL: userscript.downloadURL,
-    updateURL: userscript.updateURL,
+    // dev 产物不写 @downloadURL/@updateURL：它只由本地 dev server + 油猴加载器热更，
+    // 若带上正式渠道的更新地址，装进油猴后可能被当成正式脚本去检查更新。
+    downloadURL: isDevBuild ? undefined : userscript.downloadURL,
+    updateURL: isDevBuild ? undefined : userscript.updateURL,
   };
 
   const entries = Object.entries(meta).filter(
@@ -238,11 +248,48 @@ function buildBody() {
     if (!fs.existsSync(full)) {
       throw new Error(`模块文件不存在: ${full}`);
     }
-    const content = fs.readFileSync(full, 'utf8').trim();
+    // 行尾统一为 LF：个别源文件是 CRLF（observer / pages / utils），原样拼接会让产物
+    // 变成 CRLF/LF 混杂，而 .gitattributes 要求 LF（eol=lf）—— 后果是每次构建后 git
+    // 都把已入库的 dist 判成“已改动”，并提示 “CRLF will be replaced by LF”。
+    const content = fs
+      .readFileSync(full, 'utf8')
+      .replace(/\r\n/g, '\n')
+      .trim();
     parts.push(content);
   }
   return parts.join('\n\n') + '\n';
 }
+
+/* 校验 src/ 下的每个 .js 都已登记在配置里。
+ * 新增模块忘记写进 build.config.json 时它不会参与打包，而症状是运行时“某函数未定义”
+ * 或某个行为悄悄缺失 —— 属于最难排查的一类问题（本仓库的扁平 IIFE + 全局作用域尤其如此）。 */
+function assertAllModulesListed() {
+  const listed = new Set(
+    modules.concat(devModules).map((rel) => path.resolve(ROOT, rel))
+  );
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js')) found.push(full);
+    }
+  };
+  walk(path.join(ROOT, 'src'));
+
+  const unlisted = found
+    .filter((full) => !listed.has(full))
+    .map((full) => path.relative(ROOT, full).split(path.sep).join('/'));
+  if (unlisted.length > 0) {
+    throw new Error(
+      '以下 src 模块未登记在 build.config.json 的 src.modules / src.devModules 中，' +
+        '不会参与打包：\n  ' +
+        unlisted.join('\n  ')
+    );
+  }
+}
+
+assertAllModulesListed();
 
 if (!fs.existsSync(outputDir)) {
   fs.mkdirSync(outputDir, { recursive: true });

@@ -248,43 +248,8 @@ function buildTitleInfoMapFromInitialState() {
   return map;
 }
 
-/**
- * 判断视频数据是否命中“分类标签”黑名单（与卡片屏蔽逻辑一致）。
- * @param {object} data - 一个视频的 view 接口数据。
- * @returns {boolean}
- */
-function isVideoTagNameBlacklisted(data) {
-  const checkTname = (tname) => {
-    if (!tname) return false;
-    if (tagNameBlacklist.includes(tname)) return true;
-    const mapped = getTagNameByV2(tname); // 若该名字是 V2 名，映射回主名再判断
-    if (mapped !== null && tagNameBlacklist.includes(mapped)) return true;
-    return false;
-  };
-  if (checkTname(data.tname)) return true;
-  if (checkTname(data.tname_v2)) return true;
-  if (data.tid_v2 !== undefined && data.tid_v2 !== null) {
-    const obj = getTagNameById(data.tid_v2);
-    if (obj) {
-      if (checkTname(obj.name)) return true;
-      if (obj.name_v2 && checkTname(obj.name_v2)) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * 判断视频是否为竖屏（与卡片屏蔽逻辑一致）。
- * @param {object} data - 一个视频的 view 接口数据。
- * @returns {boolean}
- */
-function isVerticalVideo(data) {
-  if (data.dimension && data.dimension.width && data.dimension.height) {
-    const dimension = data.dimension.width / data.dimension.height;
-    return dimension < globalPluginConfig.verticalScaleThreshold;
-  }
-  return false;
-}
+// 「分类标签 / 视频标签 / 竖屏」的判定与卡片、网络拦截共用 domain/matchers.js 的同一套实现
+// （matchTNameInData / matchVideoTagInData / isVerticalVideo），本模块不再各写一份。
 
 /**
  * 只依据 B 站 view 接口数据判断某 BV 是否“按分类标签 / 竖屏”被屏蔽（不依赖 DOM 是否已渲染标签组）。
@@ -297,7 +262,7 @@ async function isBlockedByTagOrVertical(bvid) {
   if (!bvid) return false;
   const data = await getBilibiliVideoApiData(bvid);
   if (!data) return false;
-  if (cfg.flagTName && isVideoTagNameBlacklisted(data)) return true;
+  if (cfg.flagTName && matchTNameInData(data)) return true;
   if (cfg.flagVertical && isVerticalVideo(data)) return true;
   return false;
 }
@@ -351,7 +316,7 @@ async function isPlayingVideoBlacklisted(info, bv) {
         const dUpName = (data.owner && data.owner.name) || "";
         if (dUpName && isBlacklisted(dUpName, data.title)) return true;
       }
-      if (cfg.flagTName && isVideoTagNameBlacklisted(data)) return true;
+      if (cfg.flagTName && matchTNameInData(data)) return true;
       if (cfg.flagVertical && isVerticalVideo(data)) return true;
     }
   }
@@ -410,36 +375,38 @@ function cancelAutoplay() {
 
 /**
  * 尝试让播放器不刷新地切换到指定 BV（best-effort，方法名不稳定需运行时确认）。
+ *
+ * ⚠️ 成功必须**验证当前 BV 真的变了**。旧实现把「返回值 !== false」当成功，而播放器方法
+ * 大多返回 undefined（例如竖屏播放器上的 changeVideo 语义不同、调用后没有任何效果），
+ * 于是脚本以为切换成功就直接 return，既不点推荐卡片也不跳转 —— 表现就是
+ * 「自动连播遇到该跳过的视频时没有任何效果」。现在核对不过就返回 false，
+ * 由调用方继续用「点推荐卡片 → 直接跳转」兜底，保证最终一定会离开被屏蔽的视频。
  * @param {string} bvid
- * @returns {boolean} 是否成功触发切换。
+ * @returns {Promise<boolean>} 是否已确认切换到目标 BV。
  */
-function tryInPageSwitch(bvid) {
+async function tryInPageSwitch(bvid) {
   const player = window.player;
   if (!player) return false;
 
-  const trySwitch = (method, arg) => {
-    if (typeof player[method] !== "function") return false;
-    const ret = player[method](arg);
-    return ret !== false;
-  };
-
   const attempts = [
-    () => trySwitch("changeVideo", { bvid }),
-    () => trySwitch("switchVideo", { bvid }),
-    () => trySwitch("loadVideo", { bvid }),
-    () => trySwitch("changeVideo", bvid),
-    () => trySwitch("switchVideo", bvid),
+    ["changeVideo", { bvid }],
+    ["switchVideo", { bvid }],
+    ["loadVideo", { bvid }],
+    ["changeVideo", bvid],
+    ["switchVideo", bvid],
   ];
-  for (const attempt of attempts) {
+  for (const [method, arg] of attempts) {
+    if (typeof player[method] !== "function") continue;
     try {
-      if (attempt()) {
-        blInfo(
-          `[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`
-        );
-        return true;
-      }
+      player[method](arg);
     } catch (e) {
-      // 该形态不适用，继续尝试下一种
+      continue; // 该形态不适用，继续尝试下一种
+    }
+    // 给播放器一点生效时间，再核对 URL / 播放器上报的 BV
+    await sleep(300);
+    if (getBvFromUrl() === bvid || getCurrentBv() === bvid) {
+      blInfo(`[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`);
+      return true;
     }
   }
   return false;
@@ -505,17 +472,20 @@ async function getFirstNonBlockedFromDom() {
 
 /**
  * 用 B 站相关推荐接口取第一条未被屏蔽的视频 BV（DOM 找不到时兜底）。
+ * 请求走 video-data.js 的统一出口：与卡片判定共用 5s 超时 + 50ms 最小间隔
+ * （旧实现直接 fetch，既没有超时也不限速，与防限流约定冲突）。
  * @param {string} curBv - 当前视频 BV。
  * @returns {Promise<string|null>}
  */
 async function getFirstNonBlockedFromApi(curBv) {
   if (!curBv) return null;
   try {
-    const res = await fetch(
-      `https://api.bilibili.com/x/web-interface/archive/related?bvid=${curBv}`
+    const json = await requestBiliApiJson(
+      `https://api.bilibili.com/x/web-interface/archive/related?bvid=${curBv}`,
+      null, // 不计入 view / 标签请求的统计
+      "[🫥BlackList] 获取相关推荐失败:"
     );
-    const json = await res.json();
-    if (json.code !== 0 || !Array.isArray(json.data)) return null;
+    if (!json || json.code !== 0 || !Array.isArray(json.data)) return null;
     for (const item of json.data) {
       if (!item.bvid || item.bvid === curBv) continue;
       const upName = (item.owner && item.owner.name) || "";
@@ -622,7 +592,7 @@ async function handleBlockedVideo(info, bv) {
   // mode === "skip"
   const nextBv = await getFirstNonBlockedBv(bv);
   if (nextBv && nextBv !== bv) {
-    if (tryInPageSwitch(nextBv)) {
+    if (await tryInPageSwitch(nextBv)) {
       return;
     }
     if (clickRecommendCardByBv(nextBv)) {
