@@ -620,8 +620,8 @@ GM_addStyle(`
     border: 1px solid #fb7299;
   }
 
-  /* ===== 灰度效果 ===== */
-  .bilibili-blacklist-grayscale {
-    filter: grayscale(95%);
-  }
+  /* 注：原先还有一条 .bilibili-blacklist-grayscale { filter: grayscale(95%) }，
+   * 被空间页用来把"已屏蔽的 UP"整页灰度。因为会连「我追的合集/收藏夹」里的
+   * 无关视频一起灰掉（见 pages.js 里 addBlockButtonToUserSpace 的注释），已移除；
+   * 现在空间页只用按钮文案 + 名字删除线表达屏蔽状态。 */
 `);

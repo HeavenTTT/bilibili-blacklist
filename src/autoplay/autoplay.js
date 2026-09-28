@@ -375,36 +375,38 @@ function cancelAutoplay() {
 
 /**
  * 尝试让播放器不刷新地切换到指定 BV（best-effort，方法名不稳定需运行时确认）。
+ *
+ * ⚠️ 成功必须**验证当前 BV 真的变了**。旧实现把「返回值 !== false」当成功，而播放器方法
+ * 大多返回 undefined（例如竖屏播放器上的 changeVideo 语义不同、调用后没有任何效果），
+ * 于是脚本以为切换成功就直接 return，既不点推荐卡片也不跳转 —— 表现就是
+ * 「自动连播遇到该跳过的视频时没有任何效果」。现在核对不过就返回 false，
+ * 由调用方继续用「点推荐卡片 → 直接跳转」兜底，保证最终一定会离开被屏蔽的视频。
  * @param {string} bvid
- * @returns {boolean} 是否成功触发切换。
+ * @returns {Promise<boolean>} 是否已确认切换到目标 BV。
  */
-function tryInPageSwitch(bvid) {
+async function tryInPageSwitch(bvid) {
   const player = window.player;
   if (!player) return false;
 
-  const trySwitch = (method, arg) => {
-    if (typeof player[method] !== "function") return false;
-    const ret = player[method](arg);
-    return ret !== false;
-  };
-
   const attempts = [
-    () => trySwitch("changeVideo", { bvid }),
-    () => trySwitch("switchVideo", { bvid }),
-    () => trySwitch("loadVideo", { bvid }),
-    () => trySwitch("changeVideo", bvid),
-    () => trySwitch("switchVideo", bvid),
+    ["changeVideo", { bvid }],
+    ["switchVideo", { bvid }],
+    ["loadVideo", { bvid }],
+    ["changeVideo", bvid],
+    ["switchVideo", bvid],
   ];
-  for (const attempt of attempts) {
+  for (const [method, arg] of attempts) {
+    if (typeof player[method] !== "function") continue;
     try {
-      if (attempt()) {
-        blInfo(
-          `[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`
-        );
-        return true;
-      }
+      player[method](arg);
     } catch (e) {
-      // 该形态不适用，继续尝试下一种
+      continue; // 该形态不适用，继续尝试下一种
+    }
+    // 给播放器一点生效时间，再核对 URL / 播放器上报的 BV
+    await sleep(300);
+    if (getBvFromUrl() === bvid || getCurrentBv() === bvid) {
+      blInfo(`[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`);
+      return true;
     }
   }
   return false;
@@ -590,7 +592,7 @@ async function handleBlockedVideo(info, bv) {
   // mode === "skip"
   const nextBv = await getFirstNonBlockedBv(bv);
   if (nextBv && nextBv !== bv) {
-    if (tryInPageSwitch(nextBv)) {
+    if (await tryInPageSwitch(nextBv)) {
       return;
     }
     if (clickRecommendCardByBv(nextBv)) {

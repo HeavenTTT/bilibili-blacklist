@@ -1423,11 +1423,21 @@ function matchVideoTagInData(data) {
   return null;
 }
 
+function getDisplayAspectRatio(data) {
+  const dimension = data && data.dimension;
+  if (!dimension) return null;
+  const width = Number(dimension.width);
+  const height = Number(dimension.height);
+  if (!width || !height) return null;
+  const rotate = Math.abs(Number(dimension.rotate) || 0);
+  const swapped = rotate === 1 || rotate % 180 === 90;
+  return swapped ? height / width : width / height;
+}
+
 function isVerticalVideo(data) {
-  if (!data || !data.dimension) return false;
-  if (!data.dimension.width || !data.dimension.height) return false;
-  const dimension = data.dimension.width / data.dimension.height;
-  return dimension < globalPluginConfig.verticalScaleThreshold;
+  const ratio = getDisplayAspectRatio(data);
+  if (ratio === null) return false;
+  return ratio < globalPluginConfig.verticalScaleThreshold;
 }
 
 let tnameRetriedCards = new WeakSet();
@@ -2597,10 +2607,10 @@ GM_addStyle(`
     border: 1px solid #fb7299;
   }
 
-  /* ===== 灰度效果 ===== */
-  .bilibili-blacklist-grayscale {
-    filter: grayscale(95%);
-  }
+  /* 注：原先还有一条 .bilibili-blacklist-grayscale { filter: grayscale(95%) }，
+   * 被空间页用来把"已屏蔽的 UP"整页灰度。因为会连「我追的合集/收藏夹」里的
+   * 无关视频一起灰掉（见 pages.js 里 addBlockButtonToUserSpace 的注释），已移除；
+   * 现在空间页只用按钮文案 + 名字删除线表达屏蔽状态。 */
 `);
 
 
@@ -4489,13 +4499,11 @@ function addBlockButtonToUserSpace(upNameElement) {
       button.style.backgroundColor = "#dddddd";
       button.style.border = "1px solid #ccc";
       upNameElement.style.textDecoration = "line-through";
-      document.body.classList.add("bilibili-blacklist-grayscale");
     } else {
       button.textContent = "屏蔽";
       button.style.backgroundColor = "#fb7299";
       button.style.border = "1px solid #fb7299";
       upNameElement.style.textDecoration = "none";
-      document.body.classList.remove("bilibili-blacklist-grayscale");
     }
   };
 
@@ -4922,32 +4930,28 @@ function cancelAutoplay() {
   blInfo("[🫥BlackList] 相关推荐全部被屏蔽，已停止自动连播。");
 }
 
-function tryInPageSwitch(bvid) {
+async function tryInPageSwitch(bvid) {
   const player = window.player;
   if (!player) return false;
 
-  const trySwitch = (method, arg) => {
-    if (typeof player[method] !== "function") return false;
-    const ret = player[method](arg);
-    return ret !== false;
-  };
-
   const attempts = [
-    () => trySwitch("changeVideo", { bvid }),
-    () => trySwitch("switchVideo", { bvid }),
-    () => trySwitch("loadVideo", { bvid }),
-    () => trySwitch("changeVideo", bvid),
-    () => trySwitch("switchVideo", bvid),
+    ["changeVideo", { bvid }],
+    ["switchVideo", { bvid }],
+    ["loadVideo", { bvid }],
+    ["changeVideo", bvid],
+    ["switchVideo", bvid],
   ];
-  for (const attempt of attempts) {
+  for (const [method, arg] of attempts) {
+    if (typeof player[method] !== "function") continue;
     try {
-      if (attempt()) {
-        blInfo(
-          `[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`
-        );
-        return true;
-      }
+      player[method](arg);
     } catch (e) {
+      continue;
+    }
+    await sleep(300);
+    if (getBvFromUrl() === bvid || getCurrentBv() === bvid) {
+      blInfo(`[🫥BlackList] 自动连播已切换到未屏蔽视频: ${bvid}`);
+      return true;
     }
   }
   return false;
@@ -5083,7 +5087,7 @@ async function handleBlockedVideo(info, bv) {
 
   const nextBv = await getFirstNonBlockedBv(bv);
   if (nextBv && nextBv !== bv) {
-    if (tryInPageSwitch(nextBv)) {
+    if (await tryInPageSwitch(nextBv)) {
       return;
     }
     if (clickRecommendCardByBv(nextBv)) {

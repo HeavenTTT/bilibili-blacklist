@@ -552,7 +552,14 @@ function addBlockButtonToUserSpace(upNameElement) {
   button.className = "bilibili-blacklist-up-block-btn";
   button.textContent = "屏蔽";
 
-  // 刷新按钮状态和页面灰度效果
+  // 刷新按钮状态（**不再给整页加灰度**）
+  //
+  // 旧实现会在空间主人命中黑名单时给 document.body 加 .bilibili-blacklist-grayscale
+  // （filter: grayscale(95%)）。结果是整个空间页面——包括「我追的合集/收藏夹」里
+  // 与本 UP 无关的视频、合集封面、收藏夹列表——一起变灰，看起来就像"这些视频被误判覆盖"。
+  // 实测：在 favlist 页面把空间主人加进黑名单后，整页（含 95 个合集视频）全部变灰。
+  // 现在只保留按钮文案（已屏蔽）与名字删除线：既表达了"该 UP 已屏蔽"，
+  // 又不会覆盖页面内容。若要恢复视觉提示，请只对空间头部区块加类，不要动 document.body。
   const refreshButtonStatus = () => {
     const blocked = isBlacklisted(upName);
     if (blocked) {
@@ -560,13 +567,11 @@ function addBlockButtonToUserSpace(upNameElement) {
       button.style.backgroundColor = "#dddddd";
       button.style.border = "1px solid #ccc";
       upNameElement.style.textDecoration = "line-through"; // 添加删除线
-      document.body.classList.add("bilibili-blacklist-grayscale"); // 添加灰度滤镜
     } else {
       button.textContent = "屏蔽";
       button.style.backgroundColor = "#fb7299";
       button.style.border = "1px solid #fb7299";
       upNameElement.style.textDecoration = "none"; // 移除删除线
-      document.body.classList.remove("bilibili-blacklist-grayscale"); // 移除灰度滤镜
     }
   };
 

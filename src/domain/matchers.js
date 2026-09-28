@@ -123,13 +123,34 @@ function matchVideoTagInData(data) {
 }
 
 /**
- * 判断视频是否为竖屏（与卡片屏蔽逻辑一致：宽/高 < 配置阈值）。
+ * 计算视频的**显示**宽高比（width / height）。
+ *
+ * B 站 view 接口的 `dimension` 给的是**编码**尺寸，不是显示方向：手机竖拍的视频常上报
+ * `width > height` 且 `rotate = 1`（语义：顺时针旋转 90° 后显示）。例如
+ * `{width:1920, height:1080, rotate:1}` 实际是竖屏视频，直接算 1920/1080 = 1.78 会被判成横屏
+ * —— 于是「竖屏屏蔽」与「自动连播跳过」对这类视频双双失效（实测 BV12Q6TBwE1u 即为此形态）。
+ * @param {object} data - 一个视频的 view 接口数据。
+ * @returns {number|null} 显示宽高比；尺寸缺失时返回 null。
+ */
+function getDisplayAspectRatio(data) {
+  const dimension = data && data.dimension;
+  if (!dimension) return null;
+  const width = Number(dimension.width);
+  const height = Number(dimension.height);
+  if (!width || !height) return null;
+  const rotate = Math.abs(Number(dimension.rotate) || 0);
+  // 1 = B 站文档里的「顺时针旋转 90°」；同时兼容直接给 90 / 270 的写法
+  const swapped = rotate === 1 || rotate % 180 === 90;
+  return swapped ? height / width : width / height;
+}
+
+/**
+ * 判断视频是否为竖屏（与卡片屏蔽逻辑一致：**显示**宽高比 < 配置阈值）。
  * @param {object} data - 一个视频的 view 接口数据。
  * @returns {boolean}
  */
 function isVerticalVideo(data) {
-  if (!data || !data.dimension) return false;
-  if (!data.dimension.width || !data.dimension.height) return false;
-  const dimension = data.dimension.width / data.dimension.height;
-  return dimension < globalPluginConfig.verticalScaleThreshold;
+  const ratio = getDisplayAspectRatio(data);
+  if (ratio === null) return false;
+  return ratio < globalPluginConfig.verticalScaleThreshold;
 }
