@@ -140,14 +140,10 @@ function probeInterceptPayload(url, parsed) {
  *   - 广告：用官方 business_info 判定（不再靠 cm.bilibili.com 链接猜）；
  *   - 分类/视频标签/竖屏：只能复用队列**已经请求并缓存**下来的数据（命中未过期缓存才判，
  *     绝不在这里新增请求 —— 否则会把推荐接口的响应时间拖长，还可能触发限流）。
+ *
+ * 判定规则本身统一走 domain/matchers.js（与卡片判定、自动连播判定共用同一套实现）；
+ * 原因文案走 domain/block-types.js 的注册表。
  */
-var STREAM_REASON_TEXT = {
-  ad: "广告",
-  info: "UP/标题名",
-  tname: "分类标签",
-  videoTag: "视频标签",
-  vertical: "竖屏"
-};
 
 /**
  * 判断一条推荐/相关条目是否应被流内拦截。
@@ -176,7 +172,7 @@ function getStreamBlockReason(item) {
 
   var viewCached = bvApiDataCache.get(bvid);
   if (viewCached && viewCached.data && Date.now() < viewCached.expire) {
-    if (globalPluginConfig.flagTName && isVideoTagNameBlacklisted(viewCached.data)) {
+    if (globalPluginConfig.flagTName && matchTNameInData(viewCached.data)) {
       return "tname";
     }
     if (globalPluginConfig.flagVertical && isVerticalVideo(viewCached.data)) {
@@ -191,10 +187,7 @@ function getStreamBlockReason(item) {
     tagCached.data &&
     Date.now() < tagCached.expire
   ) {
-    var tags = getEligibleVideoTags(tagCached.data);
-    for (var i = 0; i < tags.length; i++) {
-      if (videoTagBlacklist.indexOf(tags[i]) !== -1) return "videoTag";
-    }
+    if (matchVideoTagInData(tagCached.data)) return "videoTag";
   }
 
   return null;
@@ -227,7 +220,8 @@ function filterStreamItems(items) {
  */
 function describeStreamReasons(byReason) {
   var parts = Object.keys(byReason).map(function (key) {
-    return (STREAM_REASON_TEXT[key] || key) + " " + byReason[key];
+    // 原因文案与面板统计行共用注册表（未知键回退为键名本身）
+    return getBlockTypeLabel(key, true) + " " + byReason[key];
   });
   return parts.length ? "（" + parts.join("、") + "）" : "";
 }

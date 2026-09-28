@@ -30,7 +30,9 @@ const config = JSON.parse(fs.readFileSync(path.join(ROOT, 'build.config.json'), 
 
 function loadBuildTarget() {
   const outputDir = config.src.outputDir || 'dist';
-  const outputBase = config.src.outputBase || `${pkg.name}.user.js`;
+  // dev.js 只做 dev 构建，因此必须用 dev 产物名 —— 与 build.js --dev 分支保持一致。
+  // 正式产物（src.outputBase）只由 `npm run build` 生成，两者不再互相覆盖。
+  const outputBase = config.src.devOutputBase || `${pkg.name}.dev.user.js`;
   return { outputDir, outputBase };
 }
 

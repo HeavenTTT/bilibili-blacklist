@@ -138,11 +138,21 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
     }
 
     const rows = panel.querySelectorAll(".bilibili-blacklist-stat-row");
-    assert("统计明细 18 行", rows.length === 18, String(rows.length));
+    // 预期行数/标签都从面板的行定义（ui.js 的 BLOCK_STATS_GROUPS，其数据源是屏蔽类型注册表 +
+    // 统计键真源）派生：新增一个统计项时自检自动跟随，不再需要同步改这里的写死文案。
+    const expectedRowLabels = BLOCK_STATS_GROUPS.reduce(
+      (acc, group) => acc.concat(group.rows.map((row) => row.label)),
+      []
+    );
+    assert(
+      "统计明细 " + expectedRowLabels.length + " 行",
+      rows.length === expectedRowLabels.length,
+      String(rows.length)
+    );
     const statGroups = panel.querySelectorAll(".bilibili-blacklist-stats-group");
     assert(
-      "统计分组 3 个（含累计与趋势）",
-      statGroups.length === 3,
+      "统计分组 " + BLOCK_STATS_GROUPS.length + " 个（含累计与趋势）",
+      statGroups.length === BLOCK_STATS_GROUPS.length,
       Array.prototype.map.call(statGroups, (g) => g.textContent).join("|")
     );
     assert(
@@ -185,8 +195,7 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
       .join(",");
     assert(
       "统计项齐全",
-      labels ===
-        "UP/标题名,广告,CM 软广,分类标签,视频标签,竖屏,网络拦截,其中广告,拦截响应,已判定卡片,view 请求,标签请求,今日屏蔽,近 7 天屏蔽,累计屏蔽,今日拦截,近 7 天拦截,累计判定",
+      labels === expectedRowLabels.join(","),
       labels
     );
     const statText = Array.prototype.map
@@ -367,21 +376,15 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
   };
   window.__blacklistExpose = {
     stats: function () {
-      return {
+      return Object.assign({}, blockCounters, {
         blocked: blockedVideoCards.size,
-        info: countBlockInfo,
-        ad: countBlockAD,
-        cm: countBlockCM,
-        tname: countBlockTName,
-        videoTag: countBlockVideoTag,
-        vertical: countBlockVertical,
         processedCards: countProcessedCards,
         apiViewRequests: countApiViewRequests,
         apiTagRequests: countApiTagRequests,
         networkInterceptItems: countNetworkInterceptItems,
         networkInterceptAds: countNetworkInterceptAds,
         networkInterceptResponses: countNetworkInterceptResponses
-      };
+      });
     },
     // 按天持久化统计（今日/近7天/累计 + 7 日序列）；flush/clear 便于自动化验证
     blockStats: {

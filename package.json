@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node build.js",
     "build:dev": "node build.js --dev",
-    "dev": "node scripts/dev.js"
+    "dev": "node scripts/dev.js",
+    "check": "node scripts/check-bundle.js"
   },
   "repository": {
     "type": "git",

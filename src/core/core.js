@@ -37,12 +37,27 @@ let videoCardProcessQueue = new Set(); // 存储待处理的卡片，用于统�
 // 保证它们不会拖慢其它卡片的判定。
 let tnameDecorateQueue = new Set();
 let isVideoCardQueueProcessing = false; // 是否正在处理队列
-let countBlockInfo = 0; // 已屏蔽视频计数（UP/标题名命中）
-let countBlockAD = 0; // 已屏蔽广告计数
-let countBlockTName = 0; // 已屏蔽分类标签计数
-let countBlockVideoTag = 0; // 已屏蔽视频标签计数
-let countBlockVertical = 0; // 已屏蔽竖屏计数
-let countBlockCM = 0; // 已屏蔽cm.bilibili.com软广计数
+// 各屏蔽类型的计数（info/ad/cm/tname/videoTag/vertical）。
+// 类型清单与「类型 ↔ 计数」的对应关系在 domain/block-types.js 的 createBlockCounters()，
+// 这里只持有数值：增 / 减 / 读都走下面三个访问器，不再为每种类型各写一条 if 分支。
+let blockCounters = createBlockCounters();
+
+/** 某个屏蔽类型的当前计数（未登记类型返回 0）。 */
+function getBlockCounter(type) {
+  return blockCounters[type] || 0;
+}
+
+/** 某个屏蔽类型计数 +1（未登记类型忽略）。 */
+function incrementBlockCounter(type) {
+  if (Object.prototype.hasOwnProperty.call(blockCounters, type)) {
+    blockCounters[type]++;
+  }
+}
+
+/** 某个屏蔽类型计数 -1（不会减到负数；未登记类型忽略）。 */
+function decrementBlockCounter(type) {
+  if (getBlockCounter(type) > 0) blockCounters[type]--;
+}
 // 以下为“非屏蔽原因”的附加统计（面板头部明细用，按页面生命周期累计、不持久化）
 let countProcessedCards = 0; // 累计判定完成的卡片数（含取消屏蔽后的重新判定）
 let countApiViewRequests = 0; // view 接口真实请求次数（命中缓存不计）
@@ -84,20 +99,8 @@ const VIDEO_TITLE_SELECTORS = [
 // 标题兜底：卡片内指向 /video/ 的链接文本
 const VIDEO_TITLE_LINK_SELECTOR = 'a[href*="/video/"]';
 
-// 屏蔽类型对应的原因文案
-const BLOCK_REASON_MAP = {
-  info: "标题/UP主名",
-  ad: "广告",
-  tname: "分类标签",
-  videoTag: "视频标签",
-  cm: "软广",
-  vertical: "竖屏视频",
-};
-
-// info 类型中“正则匹配”的原因标记（区别于精确匹配 UP 名）。
-// 正则可能同时命中多条规则、无法定位具体是哪一条，因此不支持本卡放行，
-// 用这个哨兵值让按钮只展示原因、不可点击。
-const REGEX_BLOCK_VALUE = "__regex__";
+// 屏蔽类型的原因文案 / 显示模式 / 可放行性 / 计数映射，全部来自 domain/block-types.js 的注册表；
+// 本模块不再各自维护一份类型清单（详见该文件顶部说明）。
 
 /**
  * 获取视频卡片上容器应挂载的宿主元素，并确保宿主可被绝对定位。
@@ -217,25 +220,6 @@ function markAllVideoCardsPending() {
  * @returns {void}
  *
  */
-/**
- * 计算某屏蔽类型最终使用的显示模式（支持按类型覆盖全局）。
- * @param {string} type - 屏蔽类型：info/ad/tname/cm/vertical
- * @returns {string} blur | kirby | hide
- */
-function getEffectiveDisplayMode(type) {
-  const perTypeMap = {
-    info: globalPluginConfig.displayModeInfo,
-    ad: globalPluginConfig.displayModeAD,
-    tname: globalPluginConfig.displayModeTName,
-    videoTag: globalPluginConfig.displayModeVideoTag,
-    cm: globalPluginConfig.displayModeCM,
-    vertical: globalPluginConfig.displayModeVertical,
-  };
-  const per = perTypeMap[type];
-  if (per && per !== "inherit") return per;
-  return globalPluginConfig.blockDisplayMode;
-}
-
 function hideVideoCard(cardElement, type = "none", reasonValue = null) {
   const realCardToBlock = getRealVideoCardElement(cardElement);
   if (!realCardToBlock) {
@@ -249,35 +233,18 @@ function hideVideoCard(cardElement, type = "none", reasonValue = null) {
     if (type === "info") {
       reasonValue = getVideoCardInfo(cardElement).upName;
     } else if (type === "tname") {
-      reasonValue = getBlacklistedTagName(cardElement);
+      reasonValue = matchTNameInCard(cardElement);
     }
   }
   if (blockedVideoCards.has(realCardToBlock)) {
     return;
   }
   blockedVideoCards.add(realCardToBlock);
-  if (type === "info") {
-    countBlockInfo++;
-  }
-  if (type === "ad") {
-    countBlockAD++;
-  }
-  if (type === "tname") {
-    countBlockTName++;
-  }
-  if (type === "videoTag") {
-    countBlockVideoTag++;
-  }
-  if (type === "cm") {
-    countBlockCM++;
-  }
-  if (type === "vertical") {
-    countBlockVertical++;
-  }
+  incrementBlockCounter(type); // 计数目标由域名注册表决定（未登记类型自增被忽略）
 
   const mode = getEffectiveDisplayMode(type);
   // 记录屏蔽类型：翻页复用节点等场景下需要撤销屏蔽时，据此回退对应计数
-  if (BLOCK_REASON_MAP[type]) {
+  if (isBlockType(type)) {
     realCardToBlock.setAttribute("data-bl-block-type", type);
   }
   if (mode === "hide") {
@@ -292,62 +259,8 @@ function hideVideoCard(cardElement, type = "none", reasonValue = null) {
   setBlockReasonOnCard(cardElement, type, reasonValue);
 }
 
-/**
- * 生成卡片屏蔽原因的显示文案（要求：屏蔽原因按钮显示具体的屏蔽内容）。
- * - info 精确匹配：显示具体 UP 名；
- * - info 正则匹配：无法定位具体规则，写明原因（不支持取消）；
- * - tname：显示具体标签名；
- * - videoTag：显示具体视频标签名；
- * - 其余（cm/竖屏/广告）：显示类型文案（不支持取消）。
- * @param {string} type - 屏蔽类型。
- * @param {string|null} reasonValue - 具体内容（UP 名 / 标签名 / REGEX_BLOCK_VALUE）。
- * @returns {string}
- */
-function buildBlockReasonText(type, reasonValue) {
-  if (type === "info" && reasonValue === REGEX_BLOCK_VALUE) {
-    return "屏蔽原因: 正则匹配(无法定位具体规则,请在面板移除对应正则)";
-  }
-  if (type === "info" && reasonValue) {
-    return `屏蔽原因: UP: ${reasonValue}`;
-  }
-  if (type === "info") {
-    return "屏蔽原因: 标题/UP主名";
-  }
-  if (type === "tname" && reasonValue) {
-    return `屏蔽原因: 标签: ${reasonValue}`;
-  }
-  if (type === "tname") {
-    return "屏蔽原因: 分类标签";
-  }
-  if (type === "videoTag" && reasonValue) {
-    return `屏蔽原因: 视频标签: ${reasonValue}`;
-  }
-  if (type === "videoTag") {
-    return "屏蔽原因: 视频标签";
-  }
-  return `屏蔽原因: ${BLOCK_REASON_MAP[type] || type}`;
-}
-
-/**
- * 该原因是否支持“点击取消”（= 存在可删除的黑名单规则）。
- * 只支持 info 精确匹配、tname 与 videoTag：点取消会把对应规则从黑名单删除；
- * 正则无法定位具体规则，cm/竖屏/广告没有可删除的规则。
- * @param {string} type - 屏蔽类型。
- * @param {string|null} reasonValue - 具体内容。
- * @returns {boolean}
- */
-function isReasonCancellable(type, reasonValue) {
-  if (type === "info") {
-    return !!reasonValue && reasonValue !== REGEX_BLOCK_VALUE;
-  }
-  if (type === "tname") {
-    return !!reasonValue;
-  }
-  if (type === "videoTag") {
-    return !!reasonValue;
-  }
-  return false;
-}
+// 原因文案（buildBlockReasonText）与「是否可放行」（isReasonCancellable）
+// 已随类型元数据一起移到 domain/block-types.js，本文件只调用。
 
 /**
  * 取消某张卡片当前显示的屏蔽原因（仅支持 info 精确匹配 / tname / videoTag）：
@@ -471,20 +384,6 @@ function removeBlockReason(cardElement) {
   if (reasonElement) {
     reasonElement.remove();
   }
-}
-
-/**
- * 回退某个屏蔽类型的计数（撤销屏蔽时使用，避免面板上的
- * “总数 = 各类型之和”对不上）。
- * @param {string} type - 屏蔽类型。
- */
-function decrementBlockCounter(type) {
-  if (type === "info" && countBlockInfo > 0) countBlockInfo--;
-  else if (type === "ad" && countBlockAD > 0) countBlockAD--;
-  else if (type === "tname" && countBlockTName > 0) countBlockTName--;
-  else if (type === "videoTag" && countBlockVideoTag > 0) countBlockVideoTag--;
-  else if (type === "cm" && countBlockCM > 0) countBlockCM--;
-  else if (type === "vertical" && countBlockVertical > 0) countBlockVertical--;
 }
 
 /**
@@ -1029,7 +928,7 @@ function hideAllCardsByVideoTag(tagName) {
   const videoCards = queryAllVideoCards();
   if (!videoCards) return;
   videoCards.forEach((card) => {
-    const matchedTag = getBlacklistedVideoTag(card);
+    const matchedTag = matchVideoTagInCard(card);
     if (matchedTag === tagName) {
       hideVideoCard(card, "videoTag", matchedTag);
     }

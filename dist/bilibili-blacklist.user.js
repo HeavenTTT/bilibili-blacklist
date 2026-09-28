@@ -21,22 +21,107 @@
 (function () {
   "use strict";
 
-let exactMatchBlacklist = GM_getValue("exactBlacklist", [
-  "绝区零",
-  "崩坏星穹铁道",
-  "崩坏3",
-  "原神",
-  "米哈游miHoYo",
-]);
-let regexMatchBlacklist = GM_getValue("regexBlacklist", [
-  "王者荣耀",
-  "和平精英",
-  "PUBG",
-  "绝地求生",
-  "吃鸡",
-]);
-let tagNameBlacklist = GM_getValue("tNameBlacklist", []);
-let videoTagBlacklist = GM_getValue("videoTagBlacklist", []);
+
+const REGEX_BLOCK_VALUE = "__regex__";
+
+const BLOCK_TYPES = {
+  info: {
+    label: "标题/UP主名",
+    panelLabel: "UP/标题名",
+    flag: "flagInfo",
+    displayModeKey: "displayModeInfo",
+    cancellable: true,
+    valuePrefix: "UP: ",
+  },
+  ad: {
+    label: "广告",
+    flag: "flagAD",
+    displayModeKey: "displayModeAD",
+  },
+  cm: {
+    label: "软广",
+    panelLabel: "CM 软广",
+    flag: "flagCM",
+    displayModeKey: "displayModeCM",
+  },
+  tname: {
+    label: "分类标签",
+    flag: "flagTName",
+    displayModeKey: "displayModeTName",
+    cancellable: true,
+    valuePrefix: "标签: ",
+  },
+  videoTag: {
+    label: "视频标签",
+    flag: "flagVideoTag",
+    displayModeKey: "displayModeVideoTag",
+    cancellable: true,
+    valuePrefix: "视频标签: ",
+  },
+  vertical: {
+    label: "竖屏视频",
+    panelLabel: "竖屏",
+    flag: "flagVertical",
+    displayModeKey: "displayModeVertical",
+  },
+};
+
+const BLOCK_TYPE_ORDER = ["info", "ad", "cm", "tname", "videoTag", "vertical"];
+
+function isBlockType(type) {
+  return Object.prototype.hasOwnProperty.call(BLOCK_TYPES, type);
+}
+
+function getBlockTypeKeys() {
+  return BLOCK_TYPE_ORDER.slice();
+}
+
+function getPerTypeDisplayKeys() {
+  return BLOCK_TYPE_ORDER.map((type) => BLOCK_TYPES[type].displayModeKey);
+}
+
+function isBlockTypeEnabled(type) {
+  const def = BLOCK_TYPES[type];
+  return !!def && !!globalPluginConfig[def.flag];
+}
+
+function getBlockTypeLabel(type, forPanel) {
+  const def = BLOCK_TYPES[type];
+  if (!def) return type;
+  return (forPanel && def.panelLabel) || def.label;
+}
+
+function getEffectiveDisplayMode(type) {
+  const def = BLOCK_TYPES[type];
+  const per = def ? globalPluginConfig[def.displayModeKey] : null;
+  if (per && per !== "inherit") return per;
+  return globalPluginConfig.blockDisplayMode;
+}
+
+function isReasonCancellable(type, reasonValue) {
+  const def = BLOCK_TYPES[type];
+  if (!def || !def.cancellable) return false;
+  return !!reasonValue && reasonValue !== REGEX_BLOCK_VALUE;
+}
+
+function buildBlockReasonText(type, reasonValue) {
+  if (type === "info" && reasonValue === REGEX_BLOCK_VALUE) {
+    return "屏蔽原因: 正则匹配(无法定位具体规则,请在面板移除对应正则)";
+  }
+  const def = BLOCK_TYPES[type];
+  if (def && def.valuePrefix && reasonValue) {
+    return `屏蔽原因: ${def.valuePrefix}${reasonValue}`;
+  }
+  return `屏蔽原因: ${(def && def.label) || type}`;
+}
+
+function createBlockCounters() {
+  const counters = {};
+  BLOCK_TYPE_ORDER.forEach((type) => {
+    counters[type] = 0;
+  });
+  return counters;
+}
 
 
 const defaultGlobalPluginConfig = {
@@ -65,76 +150,95 @@ const defaultGlobalPluginConfig = {
   verticalScaleThreshold: 0.7,
   flagSkipBlockedAutoplay: "off",
 };
-let globalPluginConfig = {
-  ...defaultGlobalPluginConfig,
-  ...(GM_getValue("globalConfig", {}) || {}),
+
+const SETTING_CONSTRAINTS = {
+  hoverRevealDelaySeconds: { min: 0.1, max: 5, step: 0.1 },
+  blockScanInterval: { min: 10, max: 5000, step: 10 },
+  processQueueInterval: { min: 5, max: 10000, step: 5 },
+  verticalScaleThreshold: { min: 0.1, max: 1, step: 0.05 },
 };
 
-const storedHoverRevealDelay = Number(
-  globalPluginConfig.hoverRevealDelaySeconds
-);
-globalPluginConfig.hoverRevealDelaySeconds = Number.isFinite(
-  storedHoverRevealDelay
-)
-  ? Math.min(5, Math.max(0.1, storedHoverRevealDelay))
-  : defaultGlobalPluginConfig.hoverRevealDelaySeconds;
+const SETTING_ENUMS = {
+  logLevel: ["off", "info", "verbose"],
+  flagSkipBlockedAutoplay: ["skip", "stop", "off"],
+  blockDisplayMode: ["blur", "kirby", "hide"],
+};
 
-const AUTOPLAY_SKIP_MODES = ["skip", "stop", "off"];
-if (!AUTOPLAY_SKIP_MODES.includes(globalPluginConfig.flagSkipBlockedAutoplay)) {
-  globalPluginConfig.flagSkipBlockedAutoplay =
-    defaultGlobalPluginConfig.flagSkipBlockedAutoplay;
-}
-
-if (!["off", "info", "verbose"].includes(globalPluginConfig.logLevel)) {
-  globalPluginConfig.logLevel = defaultGlobalPluginConfig.logLevel;
-}
-
-const clampNumber = (value, min, max, fallback) => {
+function clampSetting(value, key) {
+  const { min, max } = SETTING_CONSTRAINTS[key];
   const num = Number(value);
-  return Number.isFinite(num) ? Math.min(max, Math.max(min, num)) : fallback;
-};
-globalPluginConfig.blockScanInterval = clampNumber(
-  globalPluginConfig.blockScanInterval,
-  10,
-  5000,
-  defaultGlobalPluginConfig.blockScanInterval
-);
-globalPluginConfig.processQueueInterval = clampNumber(
-  globalPluginConfig.processQueueInterval,
-  5,
-  10000,
-  defaultGlobalPluginConfig.processQueueInterval
-);
-globalPluginConfig.verticalScaleThreshold = clampNumber(
-  globalPluginConfig.verticalScaleThreshold,
-  0.1,
-  1,
-  defaultGlobalPluginConfig.verticalScaleThreshold
-);
+  return Number.isFinite(num)
+    ? Math.min(max, Math.max(min, num))
+    : defaultGlobalPluginConfig[key];
+}
 
-if (
-  globalPluginConfig.blockDisplayMode === undefined &&
-  typeof globalPluginConfig.flagKirby === "boolean"
-) {
-  globalPluginConfig.blockDisplayMode = globalPluginConfig.flagKirby ? "kirby" : "hide";
+function getDisplayModeDomain() {
+  return ["inherit"].concat(SETTING_ENUMS.blockDisplayMode);
 }
-const DISPLAY_MODES = ["blur", "kirby", "hide"];
-if (!DISPLAY_MODES.includes(globalPluginConfig.blockDisplayMode)) {
-  globalPluginConfig.blockDisplayMode = defaultGlobalPluginConfig.blockDisplayMode;
-}
-const PER_TYPE_DISPLAY_KEYS = [
-  "displayModeInfo",
-  "displayModeAD",
-  "displayModeTName",
-  "displayModeVideoTag",
-  "displayModeCM",
-  "displayModeVertical",
-];
-for (const key of PER_TYPE_DISPLAY_KEYS) {
-  if (!["inherit"].concat(DISPLAY_MODES).includes(globalPluginConfig[key])) {
-    globalPluginConfig[key] = "inherit";
+
+function normalizeGlobalConfig(raw) {
+  const config = { ...defaultGlobalPluginConfig, ...(raw || {}) };
+
+  config.hoverRevealDelaySeconds = clampSetting(
+    config.hoverRevealDelaySeconds,
+    "hoverRevealDelaySeconds"
+  );
+
+  if (!SETTING_ENUMS.flagSkipBlockedAutoplay.includes(config.flagSkipBlockedAutoplay)) {
+    config.flagSkipBlockedAutoplay = defaultGlobalPluginConfig.flagSkipBlockedAutoplay;
   }
+
+  if (!SETTING_ENUMS.logLevel.includes(config.logLevel)) {
+    config.logLevel = defaultGlobalPluginConfig.logLevel;
+  }
+
+  config.blockScanInterval = clampSetting(config.blockScanInterval, "blockScanInterval");
+  config.processQueueInterval = clampSetting(
+    config.processQueueInterval,
+    "processQueueInterval"
+  );
+  config.verticalScaleThreshold = clampSetting(
+    config.verticalScaleThreshold,
+    "verticalScaleThreshold"
+  );
+
+  if (
+    config.blockDisplayMode === undefined &&
+    typeof config.flagKirby === "boolean"
+  ) {
+    config.blockDisplayMode = config.flagKirby ? "kirby" : "hide";
+  }
+  if (!SETTING_ENUMS.blockDisplayMode.includes(config.blockDisplayMode)) {
+    config.blockDisplayMode = defaultGlobalPluginConfig.blockDisplayMode;
+  }
+  getPerTypeDisplayKeys().forEach((key) => {
+    if (!getDisplayModeDomain().includes(config[key])) {
+      config[key] = "inherit";
+    }
+  });
+
+  return config;
 }
+
+let exactMatchBlacklist = GM_getValue("exactBlacklist", [
+  "绝区零",
+  "崩坏星穹铁道",
+  "崩坏3",
+  "原神",
+  "米哈游miHoYo",
+]);
+let regexMatchBlacklist = GM_getValue("regexBlacklist", [
+  "王者荣耀",
+  "和平精英",
+  "PUBG",
+  "绝地求生",
+  "吃鸡",
+]);
+let tagNameBlacklist = GM_getValue("tNameBlacklist", []);
+let videoTagBlacklist = GM_getValue("videoTagBlacklist", []);
+
+
+let globalPluginConfig = normalizeGlobalConfig(GM_getValue("globalConfig", {}));
 
 function saveBlacklistsToStorage() {
   GM_setValue("exactBlacklist", exactMatchBlacklist);
@@ -414,12 +518,21 @@ let queuedRealCards = new WeakSet();
 let videoCardProcessQueue = new Set();
 let tnameDecorateQueue = new Set();
 let isVideoCardQueueProcessing = false;
-let countBlockInfo = 0;
-let countBlockAD = 0;
-let countBlockTName = 0;
-let countBlockVideoTag = 0;
-let countBlockVertical = 0;
-let countBlockCM = 0;
+let blockCounters = createBlockCounters();
+
+function getBlockCounter(type) {
+  return blockCounters[type] || 0;
+}
+
+function incrementBlockCounter(type) {
+  if (Object.prototype.hasOwnProperty.call(blockCounters, type)) {
+    blockCounters[type]++;
+  }
+}
+
+function decrementBlockCounter(type) {
+  if (getBlockCounter(type) > 0) blockCounters[type]--;
+}
 let countProcessedCards = 0;
 let countApiViewRequests = 0;
 let countApiTagRequests = 0;
@@ -449,16 +562,6 @@ const VIDEO_TITLE_SELECTORS = [
 ];
 const VIDEO_TITLE_LINK_SELECTOR = 'a[href*="/video/"]';
 
-const BLOCK_REASON_MAP = {
-  info: "标题/UP主名",
-  ad: "广告",
-  tname: "分类标签",
-  videoTag: "视频标签",
-  cm: "软广",
-  vertical: "竖屏视频",
-};
-
-const REGEX_BLOCK_VALUE = "__regex__";
 
 function getBlockContainerHost(cardElement) {
   if (isCurrentPageVideo()) {
@@ -537,20 +640,6 @@ function markAllVideoCardsPending() {
   cards.forEach((card) => applyPendingFilter(card));
 }
 
-function getEffectiveDisplayMode(type) {
-  const perTypeMap = {
-    info: globalPluginConfig.displayModeInfo,
-    ad: globalPluginConfig.displayModeAD,
-    tname: globalPluginConfig.displayModeTName,
-    videoTag: globalPluginConfig.displayModeVideoTag,
-    cm: globalPluginConfig.displayModeCM,
-    vertical: globalPluginConfig.displayModeVertical,
-  };
-  const per = perTypeMap[type];
-  if (per && per !== "inherit") return per;
-  return globalPluginConfig.blockDisplayMode;
-}
-
 function hideVideoCard(cardElement, type = "none", reasonValue = null) {
   const realCardToBlock = getRealVideoCardElement(cardElement);
   if (!realCardToBlock) {
@@ -563,34 +652,17 @@ function hideVideoCard(cardElement, type = "none", reasonValue = null) {
     if (type === "info") {
       reasonValue = getVideoCardInfo(cardElement).upName;
     } else if (type === "tname") {
-      reasonValue = getBlacklistedTagName(cardElement);
+      reasonValue = matchTNameInCard(cardElement);
     }
   }
   if (blockedVideoCards.has(realCardToBlock)) {
     return;
   }
   blockedVideoCards.add(realCardToBlock);
-  if (type === "info") {
-    countBlockInfo++;
-  }
-  if (type === "ad") {
-    countBlockAD++;
-  }
-  if (type === "tname") {
-    countBlockTName++;
-  }
-  if (type === "videoTag") {
-    countBlockVideoTag++;
-  }
-  if (type === "cm") {
-    countBlockCM++;
-  }
-  if (type === "vertical") {
-    countBlockVertical++;
-  }
+  incrementBlockCounter(type);
 
   const mode = getEffectiveDisplayMode(type);
-  if (BLOCK_REASON_MAP[type]) {
+  if (isBlockType(type)) {
     realCardToBlock.setAttribute("data-bl-block-type", type);
   }
   if (mode === "hide") {
@@ -605,43 +677,6 @@ function hideVideoCard(cardElement, type = "none", reasonValue = null) {
   setBlockReasonOnCard(cardElement, type, reasonValue);
 }
 
-function buildBlockReasonText(type, reasonValue) {
-  if (type === "info" && reasonValue === REGEX_BLOCK_VALUE) {
-    return "屏蔽原因: 正则匹配(无法定位具体规则,请在面板移除对应正则)";
-  }
-  if (type === "info" && reasonValue) {
-    return `屏蔽原因: UP: ${reasonValue}`;
-  }
-  if (type === "info") {
-    return "屏蔽原因: 标题/UP主名";
-  }
-  if (type === "tname" && reasonValue) {
-    return `屏蔽原因: 标签: ${reasonValue}`;
-  }
-  if (type === "tname") {
-    return "屏蔽原因: 分类标签";
-  }
-  if (type === "videoTag" && reasonValue) {
-    return `屏蔽原因: 视频标签: ${reasonValue}`;
-  }
-  if (type === "videoTag") {
-    return "屏蔽原因: 视频标签";
-  }
-  return `屏蔽原因: ${BLOCK_REASON_MAP[type] || type}`;
-}
-
-function isReasonCancellable(type, reasonValue) {
-  if (type === "info") {
-    return !!reasonValue && reasonValue !== REGEX_BLOCK_VALUE;
-  }
-  if (type === "tname") {
-    return !!reasonValue;
-  }
-  if (type === "videoTag") {
-    return !!reasonValue;
-  }
-  return false;
-}
 
 function cancelCardBlockReason(card, type, value) {
   if (!card || !value) return;
@@ -736,15 +771,6 @@ function removeBlockReason(cardElement) {
   if (reasonElement) {
     reasonElement.remove();
   }
-}
-
-function decrementBlockCounter(type) {
-  if (type === "info" && countBlockInfo > 0) countBlockInfo--;
-  else if (type === "ad" && countBlockAD > 0) countBlockAD--;
-  else if (type === "tname" && countBlockTName > 0) countBlockTName--;
-  else if (type === "videoTag" && countBlockVideoTag > 0) countBlockVideoTag--;
-  else if (type === "cm" && countBlockCM > 0) countBlockCM--;
-  else if (type === "vertical" && countBlockVertical > 0) countBlockVertical--;
 }
 
 function unmarkBlockedCard(realCard) {
@@ -1132,7 +1158,7 @@ function hideAllCardsByVideoTag(tagName) {
   const videoCards = queryAllVideoCards();
   if (!videoCards) return;
   videoCards.forEach((card) => {
-    const matchedTag = getBlacklistedVideoTag(card);
+    const matchedTag = matchVideoTagInCard(card);
     if (matchedTag === tagName) {
       hideVideoCard(card, "videoTag", matchedTag);
     }
@@ -1142,33 +1168,29 @@ function hideAllCardsByVideoTag(tagName) {
 const BLOCK_STATS_STORAGE_KEY = "blockStats";
 const BLOCK_STATS_KEEP_DAYS = 30;
 const BLOCK_STATS_FLUSH_INTERVAL_MS = 5000;
-const BLOCK_STATS_KEYS = [
-  "info",
-  "ad",
-  "cm",
-  "tname",
-  "videoTag",
-  "vertical",
-  "netItems",
-  "netAds",
-  "netResponses",
-  "processed",
-];
+
+const BLOCK_STATS_EXTRA_SOURCES = {
+  netItems: () => countNetworkInterceptItems,
+  netAds: () => countNetworkInterceptAds,
+  netResponses: () => countNetworkInterceptResponses,
+  processed: () => countProcessedCards,
+};
+
+const BLOCK_STATS_KEYS = getBlockTypeKeys().concat(
+  Object.keys(BLOCK_STATS_EXTRA_SOURCES)
+);
 
 let blockStatsStore = null;
-let blockStatsSnapshot = {
-  info: 0,
-  ad: 0,
-  cm: 0,
-  tname: 0,
-  videoTag: 0,
-  vertical: 0,
-  netItems: 0,
-  netAds: 0,
-  netResponses: 0,
-  processed: 0,
-};
+let blockStatsSnapshot = createZeroBlockStatsValues();
 let blockStatsFlushTimer = null;
+
+function createZeroBlockStatsValues() {
+  const values = {};
+  BLOCK_STATS_KEYS.forEach((key) => {
+    values[key] = 0;
+  });
+  return values;
+}
 
 function getBlockStatsDayKey(date) {
   const d = date || new Date();
@@ -1205,30 +1227,19 @@ function readBlockStatsFromStorage() {
 }
 
 function getCurrentBlockStatsValues() {
-  return {
-    info: countBlockInfo,
-    ad: countBlockAD,
-    cm: countBlockCM,
-    tname: countBlockTName,
-    videoTag: countBlockVideoTag,
-    vertical: countBlockVertical,
-    netItems: countNetworkInterceptItems,
-    netAds: countNetworkInterceptAds,
-    netResponses: countNetworkInterceptResponses,
-    processed: countProcessedCards,
-  };
+  const values = createZeroBlockStatsValues();
+  getBlockTypeKeys().forEach((type) => {
+    values[type] = getBlockCounter(type);
+  });
+  Object.keys(BLOCK_STATS_EXTRA_SOURCES).forEach((key) => {
+    values[key] = BLOCK_STATS_EXTRA_SOURCES[key]();
+  });
+  return values;
 }
 
 function sumBlockStatsBlocked(bucket) {
   if (!bucket) return 0;
-  return (
-    (bucket.info || 0) +
-    (bucket.ad || 0) +
-    (bucket.cm || 0) +
-    (bucket.tname || 0) +
-    (bucket.videoTag || 0) +
-    (bucket.vertical || 0)
-  );
+  return getBlockTypeKeys().reduce((sum, type) => sum + (bucket[type] || 0), 0);
 }
 
 function pruneBlockStatsDays(store) {
@@ -1262,14 +1273,19 @@ function flushBlockStats() {
   return true;
 }
 
-function getBlockStatsSummary() {
-  flushBlockStats();
-  const store = readBlockStatsFromStorage();
+function getPendingBlockStats() {
   const current = getCurrentBlockStatsValues();
   const pending = {};
   BLOCK_STATS_KEYS.forEach((key) => {
     pending[key] = (current[key] || 0) - (blockStatsSnapshot[key] || 0);
   });
+  return pending;
+}
+
+function getBlockStatsSummary() {
+  flushBlockStats();
+  const store = readBlockStatsFromStorage();
+  const pending = getPendingBlockStats();
   const bucket = (src) => {
     const out = {};
     BLOCK_STATS_KEYS.forEach((key) => {
@@ -1297,23 +1313,16 @@ function getBlockStatsSummary() {
 function getBlockStatsDailySeries(days) {
   const store = readBlockStatsFromStorage();
   const todayKey = getBlockStatsDayKey();
-  const now = getCurrentBlockStatsValues();
+  const pending = getPendingBlockStats();
   return getRecentBlockStatsDayKeys(days).map((key) => {
     const dayBucket = store.days[key] || {};
     const isToday = key === todayKey;
-    const value = (k) =>
-      (dayBucket[k] || 0) + (isToday ? (now[k] || 0) - (blockStatsSnapshot[k] || 0) : 0);
-    return {
-      key: key,
-      blocks:
-        value("info") +
-        value("ad") +
-        value("cm") +
-        value("tname") +
-        value("videoTag") +
-        value("vertical"),
-      intercepted: value("netItems"),
-    };
+    const value = (k) => (dayBucket[k] || 0) + (isToday ? pending[k] || 0 : 0);
+    const blocks = getBlockTypeKeys().reduce(
+      (sum, type) => sum + value(type),
+      0
+    );
+    return { key: key, blocks: blocks, intercepted: value("netItems") };
   });
 }
 
@@ -1340,8 +1349,90 @@ function startBlockStatsFlusher() {
   window.addEventListener("beforeunload", () => flushBlockStats());
 }
 
+
+function matchTNameInCard(cardElement) {
+  const tnameGroup = cardElement.querySelector(
+    ".bilibili-blacklist-tname-group"
+  );
+  if (!tnameGroup) return null;
+  const tnameElements = tnameGroup.querySelectorAll(
+    ".bilibili-blacklist-tname"
+  );
+  for (const tnameElement of tnameElements) {
+    const tname = tnameElement.textContent.trim();
+    if (!tname) continue;
+    let matched = null;
+    if (tagNameBlacklist.includes(tname)) {
+      matched = tname;
+    } else {
+      const name = getTagNameByV2(tname);
+      if (name !== null && tagNameBlacklist.includes(name)) {
+        matched = name;
+      }
+    }
+    if (matched === null) continue;
+    return matched;
+  }
+  return null;
+}
+
+function isCardBlacklistedByTagName(cardElement) {
+  return !!matchTNameInCard(cardElement);
+}
+
+function matchVideoTagInCard(cardElement) {
+  const videoTagElements = cardElement.querySelectorAll(
+    ".bilibili-blacklist-video-tag"
+  );
+  for (const videoTagElement of videoTagElements) {
+    const tagName = (videoTagElement.textContent || "").trim();
+    if (tagName && videoTagBlacklist.includes(tagName)) {
+      return tagName;
+    }
+  }
+  return null;
+}
+
+function matchTNameInData(data) {
+  if (!data) return false;
+  const checkTname = (tname) => {
+    if (!tname) return false;
+    if (tagNameBlacklist.includes(tname)) return true;
+    const mapped = getTagNameByV2(tname);
+    if (mapped !== null && tagNameBlacklist.includes(mapped)) return true;
+    return false;
+  };
+  if (checkTname(data.tname)) return true;
+  if (checkTname(data.tname_v2)) return true;
+  if (data.tid_v2 !== undefined && data.tid_v2 !== null) {
+    const obj = getTagNameById(data.tid_v2);
+    if (obj) {
+      if (checkTname(obj.name)) return true;
+      if (obj.name_v2 && checkTname(obj.name_v2)) return true;
+    }
+  }
+  return false;
+}
+
+function matchVideoTagInData(data) {
+  if (!data) return null;
+  const tags = getEligibleVideoTags(data);
+  for (let i = 0; i < tags.length; i++) {
+    if (videoTagBlacklist.indexOf(tags[i]) !== -1) return tags[i];
+  }
+  return null;
+}
+
+function isVerticalVideo(data) {
+  if (!data || !data.dimension) return false;
+  if (!data.dimension.width || !data.dimension.height) return false;
+  const dimension = data.dimension.width / data.dimension.height;
+  return dimension < globalPluginConfig.verticalScaleThreshold;
+}
+
 let tnameRetriedCards = new WeakSet();
 let videoTagRetriedCards = new WeakSet();
+let currentQueuedCard = null;
 let isPageCurrentlyActive = true;
 function getCardHrefLink(cardElement) {
   const hrefLink = cardElement.querySelector("a");
@@ -1389,95 +1480,93 @@ async function bvApiThrottle() {
   lastBvApiRequestAt = Date.now();
 }
 
+function getCachedEntry(cache, bvid) {
+  if (!bvid) return null;
+  const cached = cache.get(bvid);
+  return cached && Date.now() < cached.expire ? cached : null;
+}
+
 function hasFreshBvApiCache(bvid) {
-  if (!bvid) return false;
-  const cached = bvApiDataCache.get(bvid);
-  return !!(cached && Date.now() < cached.expire);
+  return !!getCachedEntry(bvApiDataCache, bvid);
+}
+
+async function requestBiliApiJson(url, onRequest, errorLabel) {
+  await bvApiThrottle();
+  if (onRequest) onRequest();
+  const controller =
+    typeof AbortController === "function" ? new AbortController() : null;
+  const timeoutTimer = controller
+    ? setTimeout(() => controller.abort(), BV_API_TIMEOUT_MS)
+    : null;
+  try {
+    const response = await fetch(
+      url,
+      controller ? { signal: controller.signal } : undefined
+    );
+    return await response.json();
+  } catch (error) {
+    console.error(errorLabel, error);
+    return null;
+  } finally {
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+  }
 }
 
 async function getBilibiliVideoApiData(bvid) {
   if (!bvid || bvid.length >= 24) {
     return null;
   }
-  const cached = bvApiDataCache.get(bvid);
-  if (cached && Date.now() < cached.expire) {
+  const cached = getCachedEntry(bvApiDataCache, bvid);
+  if (cached) {
     return cached.data;
   }
-  await bvApiThrottle();
-  countApiViewRequests++;
-  const url = `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`;
-  const controller =
-    typeof AbortController === "function" ? new AbortController() : null;
-  const timeoutTimer = controller
-    ? setTimeout(() => controller.abort(), BV_API_TIMEOUT_MS)
-    : null;
-  try {
-    const response = await fetch(
-      url,
-      controller ? { signal: controller.signal } : undefined
-    );
-    const json = await response.json();
-    if (json.code === 0) {
-      bvApiDataCache.set(bvid, {
-        data: json.data,
-        expire: Date.now() + BV_API_CACHE_TTL,
-      });
-      return json.data;
-    }
-    return null;
-  } catch (error) {
-    console.error("[🫥BlackList] API 请求失败:", error);
-    return null;
-  } finally {
-    if (timeoutTimer) clearTimeout(timeoutTimer);
+  const json = await requestBiliApiJson(
+    `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`,
+    () => {
+      countApiViewRequests++;
+    },
+    "[🫥BlackList] API 请求失败:"
+  );
+  if (json && json.code === 0) {
+    bvApiDataCache.set(bvid, {
+      data: json.data,
+      expire: Date.now() + BV_API_CACHE_TTL,
+    });
+    return json.data;
   }
+  return null;
 }
 
 const bvTagApiDataCache = new Map();
 
 function hasFreshBvTagApiCache(bvid) {
-  if (!bvid) return false;
-  const cached = bvTagApiDataCache.get(bvid);
-  return !!(cached && Date.now() < cached.expire);
+  return !!getCachedEntry(bvTagApiDataCache, bvid);
 }
 
 async function getBilibiliVideoTagApiData(bvid) {
   if (!bvid || bvid.length >= 24) {
     return null;
   }
-  const cached = bvTagApiDataCache.get(bvid);
-  if (cached && Date.now() < cached.expire) {
+  const cached = getCachedEntry(bvTagApiDataCache, bvid);
+  if (cached) {
     return cached.data;
   }
-  await bvApiThrottle();
-  countApiTagRequests++;
-  const url = `https://api.bilibili.com/x/tag/archive/tags?bvid=${encodeURIComponent(bvid)}`;
-  const controller =
-    typeof AbortController === "function" ? new AbortController() : null;
-  const timeoutTimer = controller
-    ? setTimeout(() => controller.abort(), BV_API_TIMEOUT_MS)
-    : null;
-  try {
-    const response = await fetch(
-      url,
-      controller ? { signal: controller.signal } : undefined
-    );
-    const json = await response.json();
-    if (json.code === 0 && Array.isArray(json.data)) {
-      const data = { videoTags: json.data };
-      bvTagApiDataCache.set(bvid, {
-        data,
-        expire: Date.now() + BV_API_CACHE_TTL,
-      });
-      return data;
-    }
-    return null;
-  } catch (error) {
-    console.error("[🫥BlackList] 视频标签 API 请求失败:", error);
-    return null;
-  } finally {
-    if (timeoutTimer) clearTimeout(timeoutTimer);
+  const json = await requestBiliApiJson(
+    `https://api.bilibili.com/x/tag/archive/tags?bvid=${encodeURIComponent(bvid)}`,
+    () => {
+      countApiTagRequests++;
+    },
+    "[🫥BlackList] 视频标签 API 请求失败:"
+  );
+  if (json && json.code === 0 && Array.isArray(json.data)) {
+    const data = { videoTags: json.data };
+    bvTagApiDataCache.set(bvid, {
+      data,
+      expire: Date.now() + BV_API_CACHE_TTL,
+    });
+    return data;
   }
+  return null;
 }
 
 function normalizeVideoTagName(tag) {
@@ -1511,35 +1600,6 @@ function getEligibleVideoTags(data) {
   return result;
 }
 
-function getBlacklistedTagName(cardElement) {
-  const tnameGroup = cardElement.querySelector(
-    ".bilibili-blacklist-tname-group"
-  );
-  if (!tnameGroup) return null;
-  const tnameElements = tnameGroup.querySelectorAll(
-    ".bilibili-blacklist-tname"
-  );
-  for (const tnameElement of tnameElements) {
-    const tname = tnameElement.textContent.trim();
-    if (!tname) continue;
-    let matched = null;
-    if (tagNameBlacklist.includes(tname)) {
-      matched = tname;
-    } else {
-      const name = getTagNameByV2(tname);
-      if (name !== null && tagNameBlacklist.includes(name)) {
-        matched = name;
-      }
-    }
-    if (matched === null) continue;
-    return matched;
-  }
-  return null;
-}
-
-function isCardBlacklistedByTagName(cardElement) {
-  return !!getBlacklistedTagName(cardElement);
-}
 
 function addTagSummary(group, label, buttons, color, card) {
   if (!buttons || buttons.length === 0) return;
@@ -1602,19 +1662,6 @@ function addTagSummary(group, label, buttons, color, card) {
       show();
     }
   });
-}
-
-function getBlacklistedVideoTag(cardElement) {
-  const videoTagElements = cardElement.querySelectorAll(
-    ".bilibili-blacklist-video-tag"
-  );
-  for (const videoTagElement of videoTagElements) {
-    const tagName = (videoTagElement.textContent || "").trim();
-    if (tagName && videoTagBlacklist.includes(tagName)) {
-      return tagName;
-    }
-  }
-  return null;
 }
 
 async function attachTNameGroupToCard(card, bvId) {
@@ -1699,9 +1746,63 @@ async function attachTNameGroupToCard(card, bvId) {
   return { data, tnameResolved, usedNetwork, viewFailed, videoTagFailed };
 }
 
-async function processVideoCardQueue() {
+function processVideoCardQueue() {
   if (isVideoCardQueueProcessing) return;
   isVideoCardQueueProcessing = true;
+  return runVideoCardQueueLoop()
+    .catch((error) => {
+      console.error(
+        "[🫥BlackList] 卡片队列处理中断，剩余卡片将在下次扫描/页面变化时继续:",
+        error
+      );
+      releaseCurrentQueuedCard();
+    })
+    .finally(() => {
+      currentQueuedCard = null;
+      isVideoCardQueueProcessing = false;
+      refreshBlockCountDisplay();
+      updateTNameListFromFeed();
+    });
+}
+
+function releaseCurrentQueuedCard() {
+  const card = currentQueuedCard;
+  currentQueuedCard = null;
+  if (!card) return;
+  const realCard = getRealVideoCardElement(card) || card;
+  clearPendingFilter(card);
+  unmarkBlockedCard(realCard);
+  removeBlockReason(card);
+  removeKirbyOverlay(card);
+  if (realCard) {
+    realCard.style.display = "block";
+    realCard.style.visibility = "visible";
+  }
+  processedVideoCards.add(realCard);
+  countProcessedCards++;
+}
+
+function evaluateTagAndShape(card, data) {
+  return {
+    matchedTName: isBlockTypeEnabled("tname") ? matchTNameInCard(card) : null,
+    matchedVideoTag: isBlockTypeEnabled("videoTag")
+      ? matchVideoTagInCard(card)
+      : null,
+    isVertical: isBlockTypeEnabled("vertical") ? isVerticalVideo(data) : false,
+  };
+}
+
+async function requeueForRetry(card, retriedSet, usedNetwork) {
+  if (retriedSet.has(card)) return false;
+  retriedSet.add(card);
+  videoCardProcessQueue.add(card);
+  if (usedNetwork) {
+    await sleep(globalPluginConfig.processQueueInterval);
+  }
+  return true;
+}
+
+async function runVideoCardQueueLoop() {
   let localDecisionStreak = 0;
 
   while (videoCardProcessQueue.size > 0 || tnameDecorateQueue.size > 0) {
@@ -1710,6 +1811,7 @@ async function processVideoCardQueue() {
       continue;
     }
 
+    currentQueuedCard = null;
     if (videoCardProcessQueue.size === 0) {
       const decorateIterator = tnameDecorateQueue.values();
       const decorateCard = decorateIterator.next().value;
@@ -1739,6 +1841,7 @@ async function processVideoCardQueue() {
     if (card.isConnected === false) {
       continue;
     }
+    currentQueuedCard = card;
 
     let usedNetwork = false;
     let shouldHide = false;
@@ -1752,7 +1855,7 @@ async function processVideoCardQueue() {
       blockType = "cm";
     }
     const { upName, videoTitle } = getVideoCardInfo(card);
-    if (!shouldHide && globalPluginConfig.flagInfo && (upName || videoTitle)) {
+    if (!shouldHide && isBlockTypeEnabled("info") && (upName || videoTitle)) {
       const exactMatch = getExactBlacklistMatch(upName);
       if (exactMatch) {
         shouldHide = true;
@@ -1769,9 +1872,9 @@ async function processVideoCardQueue() {
 
     if (
       !shouldHide &&
-      (globalPluginConfig.flagTName ||
-        globalPluginConfig.flagVideoTag ||
-        globalPluginConfig.flagVertical) &&
+      (isBlockTypeEnabled("tname") ||
+        isBlockTypeEnabled("videoTag") ||
+        isBlockTypeEnabled("vertical")) &&
       bvId
     ) {
       if (hasTNameGroup) {
@@ -1779,34 +1882,20 @@ async function processVideoCardQueue() {
         usedNetwork = result.usedNetwork;
         const data = result.data;
         if (data) {
-          const matchedTag = globalPluginConfig.flagTName
-            ? getBlacklistedTagName(card)
-            : null;
-          if (matchedTag) {
+          const facts = evaluateTagAndShape(card, data);
+          if (facts.matchedTName) {
             shouldHide = true;
             blockType = "tname";
-            blockReasonValue = matchedTag;
+            blockReasonValue = facts.matchedTName;
           }
-          const matchedVideoTag = globalPluginConfig.flagVideoTag
-            ? getBlacklistedVideoTag(card)
-            : null;
-          if (!shouldHide && matchedVideoTag) {
+          if (!shouldHide && facts.matchedVideoTag) {
             shouldHide = true;
             blockType = "videoTag";
-            blockReasonValue = matchedVideoTag;
+            blockReasonValue = facts.matchedVideoTag;
           }
-          if (
-            !shouldHide &&
-            globalPluginConfig.flagVertical &&
-            data.dimension &&
-            data.dimension.width &&
-            data.dimension.height
-          ) {
-            const dimension = data.dimension.width / data.dimension.height;
-            if (dimension < globalPluginConfig.verticalScaleThreshold) {
-              shouldHide = true;
-              blockType = "vertical";
-            }
+          if (!shouldHide && facts.isVertical) {
+            shouldHide = true;
+            blockType = "vertical";
           }
         }
       } else {
@@ -1815,83 +1904,44 @@ async function processVideoCardQueue() {
         const data = result.data;
 
         if (data) {
-          const matchedTag = globalPluginConfig.flagTName
-            ? getBlacklistedTagName(card)
-            : null;
-          if (matchedTag) {
+          const facts = evaluateTagAndShape(card, data);
+          if (facts.matchedTName) {
             shouldHide = true;
             blockType = "tname";
-            blockReasonValue = matchedTag;
+            blockReasonValue = facts.matchedTName;
           }
-          const matchedVideoTag = globalPluginConfig.flagVideoTag
-            ? getBlacklistedVideoTag(card)
-            : null;
-          if (!shouldHide && matchedVideoTag) {
+          if (!shouldHide && facts.matchedVideoTag) {
             shouldHide = true;
             blockType = "videoTag";
-            blockReasonValue = matchedVideoTag;
+            blockReasonValue = facts.matchedVideoTag;
           }
-          if (
-            globalPluginConfig.flagVideoTag &&
-            !shouldHide &&
-            result.videoTagFailed
-          ) {
-            if (!videoTagRetriedCards.has(card)) {
-              videoTagRetriedCards.add(card);
-              videoCardProcessQueue.add(card);
-              if (usedNetwork) {
-                await sleep(globalPluginConfig.processQueueInterval);
-              }
-              continue;
-            }
+          if (isBlockTypeEnabled("videoTag") && !shouldHide && result.videoTagFailed) {
+            if (await requeueForRetry(card, videoTagRetriedCards, usedNetwork)) continue;
             console.warn(
               "[🫥BlackList] 视频标签接口无返回，按放行处理:",
               bvId
             );
           }
-          if (
-            !shouldHide &&
-            globalPluginConfig.flagVertical &&
-            data.dimension &&
-            data.dimension.width &&
-            data.dimension.height
-          ) {
-            const dimension = data.dimension.width / data.dimension.height;
-            if (dimension < globalPluginConfig.verticalScaleThreshold) {
-              shouldHide = true;
-              blockType = "vertical";
-            }
+          if (!shouldHide && facts.isVertical) {
+            shouldHide = true;
+            blockType = "vertical";
           }
 
-          if (globalPluginConfig.flagTName && !shouldHide && !result.tnameResolved) {
-            if (!tnameRetriedCards.has(card)) {
-              tnameRetriedCards.add(card);
-              videoCardProcessQueue.add(card);
-              if (usedNetwork) {
-                await sleep(globalPluginConfig.processQueueInterval);
-              }
-              continue;
-            }
+          if (isBlockTypeEnabled("tname") && !shouldHide && !result.tnameResolved) {
+            if (await requeueForRetry(card, tnameRetriedCards, usedNetwork)) continue;
             console.warn(
               "[🫥BlackList] 分类标签解析失败，按放行处理:",
               bvId
             );
           }
         } else if (
-          globalPluginConfig.flagTName ||
-          globalPluginConfig.flagVideoTag
+          isBlockTypeEnabled("tname") ||
+          isBlockTypeEnabled("videoTag")
         ) {
-          const retriedSet = globalPluginConfig.flagTName
+          const retriedSet = isBlockTypeEnabled("tname")
             ? tnameRetriedCards
             : videoTagRetriedCards;
-          if (!retriedSet.has(card)) {
-            retriedSet.add(card);
-            videoCardProcessQueue.add(card);
-            if (usedNetwork) {
-              await sleep(globalPluginConfig.processQueueInterval);
-            }
-            continue;
-          }
+          if (await requeueForRetry(card, retriedSet, usedNetwork)) continue;
           console.warn(
             "[🫥BlackList] 分类/视频标签接口均无返回，按放行处理:",
             bvId
@@ -1901,7 +1951,7 @@ async function processVideoCardQueue() {
     } else if (
       shouldHide &&
       globalPluginConfig.flagAlwaysFetchTName &&
-      (globalPluginConfig.flagTName || globalPluginConfig.flagVideoTag) &&
+      (isBlockTypeEnabled("tname") || isBlockTypeEnabled("videoTag")) &&
       bvId &&
       !hasTNameGroup
     ) {
@@ -1925,6 +1975,7 @@ async function processVideoCardQueue() {
 
     processedVideoCards.add(realCardKey);
     countProcessedCards++;
+    currentQueuedCard = null;
 
     if (usedNetwork) {
       localDecisionStreak = 0;
@@ -1935,1177 +1986,14 @@ async function processVideoCardQueue() {
       await sleep(0);
     }
   }
-  isVideoCardQueueProcessing = false;
-  refreshBlockCountDisplay();
-  updateTNameListFromFeed();
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+
 const KIRBY_FADE_DURATION_MS = 800;
-const DISPLAY_MODE_INHERIT_OPTIONS = [
-  { value: "inherit", label: "继承全局" },
-  { value: "blur", label: "模糊遮盖" },
-  { value: "kirby", label: "模糊遮盖加卡比" },
-  { value: "hide", label: "隐藏卡片" },
-];
-const hoverRevealBoundCards = new WeakSet();
-const hoverRevealTimers = new WeakMap();
-const kirbyFadeTimers = new WeakMap();
-
-function createBlockUpButton(upName) {
-  const button = document.createElement("div");
-  button.className = "bilibili-blacklist-block-btn";
-  button.textContent = "屏蔽";
-  button.title = `屏蔽: ${upName}`;
-  button.dataset.upName = upName || "";
-
-  return button;
-}
-
-function createTNameBlockButton(tagName) {
-  const button = document.createElement("span");
-  button.className = "bilibili-blacklist-tname";
-  button.textContent = tagName;
-  button.title = `屏蔽: ${tagName}`;
-  button.dataset.tagName = tagName || "";
-
-  return button;
-}
-
-function createVideoTagBlockButton(tagName) {
-  const button = document.createElement("span");
-  button.className = "bilibili-blacklist-video-tag";
-  button.textContent = tagName;
-  button.title = `屏蔽视频标签: ${tagName}`;
-  button.dataset.videoTag = tagName || "";
-  return button;
-}
-
-const CARD_ROOT_SELECTORS_FOR_BUTTON = [
-  ".bili-video-card",
-  ".video-page-card-small",
-  ".feed-card",
-];
-
-function findCardForButton(button) {
-  const container = button.closest(".bilibili-blacklist-block-container");
-  if (!container) return null;
-  for (const sel of CARD_ROOT_SELECTORS_FOR_BUTTON) {
-    const node = container.closest(sel);
-    if (node) return node;
-  }
-  return container.parentElement;
-}
-
-let cardButtonDelegationInstalled = false;
-
-function setupCardButtonDelegation() {
-  if (cardButtonDelegationInstalled) return;
-  cardButtonDelegationInstalled = true;
-  document.addEventListener(
-    "click",
-    function (e) {
-      const t = e.target;
-      if (!t || typeof t.closest !== "function") return;
-
-      const blockBtn = t.closest(".bilibili-blacklist-block-btn");
-      if (blockBtn) {
-        e.stopPropagation();
-        e.preventDefault();
-        const upName = blockBtn.dataset.upName || "";
-        if (!upName) return;
-        addToExactBlacklist(upName, findCardForButton(blockBtn));
-        return;
-      }
-
-      const reasonBtn = t.closest(".bilibili-blacklist-block-reason");
-      if (reasonBtn) {
-        e.stopPropagation();
-        e.preventDefault();
-        if (!reasonBtn.classList.contains("is-cancellable")) return;
-        const blockType = reasonBtn.dataset.blockType || "";
-        const blockValue = reasonBtn.dataset.blockValue || "";
-        if (!blockType || !blockValue) return;
-        cancelCardBlockReason(findCardForButton(reasonBtn), blockType, blockValue);
-        return;
-      }
-
-      const videoTagBtn = t.closest(".bilibili-blacklist-video-tag");
-      if (videoTagBtn) {
-        e.stopPropagation();
-        e.preventDefault();
-        const tagName = videoTagBtn.dataset.videoTag || "";
-        if (!tagName) return;
-        addToVideoTagBlacklist(tagName, findCardForButton(videoTagBtn));
-        return;
-      }
-
-      const tnameBtn = t.closest(".bilibili-blacklist-tname");
-      if (tnameBtn) {
-        e.stopPropagation();
-        e.preventDefault();
-        const tagName = tnameBtn.dataset.tagName || "";
-        if (!tagName) return;
-        addToTagNameBlacklist(tagName, findCardForButton(tnameBtn));
-      }
-    },
-    true
-  );
-}
-
-function resolveHeaderEntryHost() {
-  return (
-    document.querySelector(".right-entry__main") ||
-    document.querySelector(".right-entry") ||
-    null
-  );
-}
-
-let headerButtonRetryScheduled = false;
-function scheduleHeaderButtonRetry() {
-  if (headerButtonRetryScheduled) return;
-  headerButtonRetryScheduled = true;
-  waitForContainer(".right-entry__main, .right-entry", () => {
-    headerButtonRetryScheduled = false;
-    addBlacklistManagerButton();
-  }, 250, 15000);
-}
-
-function addBlacklistManagerButton() {
-  if (!globalPluginConfig.flagHeaderButton) return;
-  const rightEntry = resolveHeaderEntryHost();
-  if (!rightEntry) {
-    console.warn("[🫥BlackList] 未找到右侧导航栏(.right-entry__main / .right-entry)");
-    return;
-  }
-  if (rightEntry.querySelector("#bilibili-blacklist-manager-button")) return;
-  if (isCurrentPageVideo() && !videoHeaderReady) return;
-  if (!rightEntry.querySelector("a, li, .right-entry__item")) {
-    scheduleHeaderButtonRetry();
-    return;
-  }
-
-  const listItem = document.createElement("li");
-  listItem.id = "bilibili-blacklist-manager-button";
-  listItem.className = "v-popover-wrap";
-
-  const button = document.createElement("div");
-  button.className = "right-entry-item";
-
-  const icon = document.createElement("div");
-  icon.className = "right-entry__outside";
-  icon.innerHTML = getKirbySVG();
-
-  blockCountDisplayElement = document.createElement("span");
-  blockCountDisplayElement.textContent = `0`;
-
-  button.appendChild(icon);
-  button.appendChild(blockCountDisplayElement);
-  listItem.appendChild(button);
-
-  if (rightEntry.children.length > 1) {
-    rightEntry.insertBefore(listItem, rightEntry.children[1]);
-  } else {
-    rightEntry.appendChild(listItem);
-  }
-
-  listItem.addEventListener("click", () => {
-    managerPanel.style.display =
-      managerPanel.style.display === "flex" ? "none" : "flex";
-  });
-}
-
-function toggleHeaderButtonVisibility() {
-  const btn = document.querySelector("#bilibili-blacklist-manager-button");
-  if (globalPluginConfig.flagHeaderButton) {
-    if (btn) {
-      btn.style.display = "";
-    } else {
-      addBlacklistManagerButton();
-    }
-  } else if (btn) {
-    btn.remove();
-  }
-}
-
-function initTampermonkeyMenu() {
-  if (typeof GM_registerMenuCommand !== "function") {
-    console.warn(
-      "[🫥BlackList] 当前未获得 GM_registerMenuCommand 授权，油猴菜单里的" +
-        "「显示/隐藏顶部管理按钮」「打开黑名单管理面板」不会出现。" +
-        "这是油猴在脚本更新后没有重新批准新增 @grant 导致的（不是脚本错误）：" +
-        "请在 Tampermonkey 里删除本脚本后重新安装一次（或在该脚本的设置里重新确认权限）。"
-    );
-    return;
-  }
-  GM_registerMenuCommand("显示/隐藏顶部管理按钮", () => {
-    globalPluginConfig.flagHeaderButton = !globalPluginConfig.flagHeaderButton;
-    saveGlobalConfigToStorage();
-    toggleHeaderButtonVisibility();
-  });
-  GM_registerMenuCommand("打开黑名单管理面板", () => {
-    if (!managerPanel) createBlacklistPanel();
-    if (managerPanel) managerPanel.style.display = "flex";
-  });
-  blInfo(
-    "[🫥BlackList] 已注册油猴菜单：显示/隐藏顶部管理按钮、打开黑名单管理面板"
-  );
-}
-
-const BLOCK_STATS_GROUPS = [
-  {
-    title: "屏蔽原因明细",
-    rows: [
-      { key: "info", label: "UP/标题名", getText: () => String(countBlockInfo) },
-      { key: "ad", label: "广告", getText: () => String(countBlockAD) },
-      { key: "cm", label: "CM 软广", getText: () => String(countBlockCM) },
-      { key: "tname", label: "分类标签", getText: () => String(countBlockTName) },
-      { key: "videoTag", label: "视频标签", getText: () => String(countBlockVideoTag) },
-      { key: "vertical", label: "竖屏", getText: () => String(countBlockVertical) },
-    ],
-  },
-  {
-    title: "网络与请求",
-    rows: [
-      { key: "netItems", label: "网络拦截", getText: () => `${countNetworkInterceptItems} 条` },
-      { key: "netAds", label: "其中广告", getText: () => `${countNetworkInterceptAds} 条` },
-      { key: "netResponses", label: "拦截响应", getText: () => `${countNetworkInterceptResponses} 次` },
-      { key: "processed", label: "已判定卡片", getText: () => String(countProcessedCards) },
-      { key: "apiView", label: "view 请求", getText: () => String(countApiViewRequests) },
-      { key: "apiTag", label: "标签请求", getText: () => String(countApiTagRequests) },
-    ],
-  },
-  {
-    title: "累计与趋势（按天持久化）",
-    withTrend: true,
-    rows: [
-      {
-        key: "todayBlocks",
-        label: "今日屏蔽",
-        getText: (ctx) => String(sumBlockStatsBlocked(ctx.summary.today)),
-      },
-      {
-        key: "last7Blocks",
-        label: "近 7 天屏蔽",
-        getText: (ctx) => String(sumBlockStatsBlocked(ctx.summary.last7)),
-      },
-      {
-        key: "totalBlocks",
-        label: "累计屏蔽",
-        getText: (ctx) => String(sumBlockStatsBlocked(ctx.summary.total)),
-      },
-      {
-        key: "todayNet",
-        label: "今日拦截",
-        getText: (ctx) => `${ctx.summary.today.netItems} 条`,
-      },
-      {
-        key: "last7Net",
-        label: "近 7 天拦截",
-        getText: (ctx) => `${ctx.summary.last7.netItems} 条`,
-      },
-      {
-        key: "totalProcessed",
-        label: "累计判定",
-        getText: (ctx) => String(ctx.summary.total.processed),
-      },
-    ],
-  },
-];
-
-function refreshBlockCountDisplay() {
-  const headerNotReady = isCurrentPageVideo() && !videoHeaderReady;
-  if (!headerNotReady && blockCountDisplayElement) {
-    blockCountDisplayElement.textContent = `${blockedVideoCards.size}`;
-  }
-  if (blockCountTitleElement) {
-    blockCountTitleElement.textContent = `已屏蔽视频 ${blockedVideoCards.size}`;
-  }
-  if (!blockStatsValueElements) return;
-  if (!isBlockStatsExpanded) return;
-  const ctx = {
-    summary: getBlockStatsSummary(),
-    series: getBlockStatsDailySeries(7),
-  };
-  BLOCK_STATS_GROUPS.forEach((group) => {
-    group.rows.forEach((row) => {
-      const valueElement = blockStatsValueElements.get(row.key);
-      if (valueElement) valueElement.textContent = row.getText(ctx);
-    });
-  });
-  if (blockTrendBarElements && ctx.series) {
-    const maxBlocks = Math.max(
-      1,
-      ctx.series.reduce((m, d) => Math.max(m, d.blocks), 0)
-    );
-    ctx.series.forEach((day, index) => {
-      const bar = blockTrendBarElements[index];
-      if (!bar) return;
-      bar.style.height =
-        (day.blocks === 0 ? 2 : Math.max(3, Math.round((day.blocks / maxBlocks) * 26))) +
-        "px";
-      bar.style.backgroundColor = day.blocks === 0 ? "#e3e5e8" : "#fb7299";
-      bar.title = `${day.key.slice(5)}：屏蔽 ${day.blocks} 条（网络拦截 ${day.intercepted} 条）`;
-    });
-  }
-}
-
-function createPanelButton(text, bgColor, onClick) {
-  const button = document.createElement("button");
-  button.className = "bilibili-blacklist-panel-btn";
-  button.textContent = text;
-  button.style.background = bgColor;
-  button.addEventListener("click", onClick);
-  return button;
-}
-
-function createBlacklistListItem(contentText, onRemoveClick) {
-  const item = document.createElement("li");
-  item.className = "bilibili-blacklist-list-item";
-
-  const content = document.createElement("span");
-  content.textContent = contentText;
-  const removeBtn = createPanelButton("移除", "#f56c6c", onRemoveClick);
-
-  item.appendChild(content);
-  item.appendChild(removeBtn);
-  return item;
-}
-
-function getListSearchKeyword(selector) {
-  const el = document.querySelector(selector);
-  return el ? (el.value || "").trim().toLowerCase() : "";
-}
-
-function createListSearchInput(id, placeholder, onInput) {
-  const input = document.createElement("input");
-  input.type = "text";
-  input.id = id;
-  input.placeholder = placeholder;
-  input.className = "bilibili-blacklist-search-input";
-  input.addEventListener("input", onInput);
-  return input;
-}
-
-function refreshBlacklistList(cfg) {
-  let listElement = cfg.cachedElement;
-  if (!listElement) {
-    if (!isBlacklistPanelCreated()) return null;
-    listElement = document.querySelector("#" + cfg.listId);
-    if (!listElement) {
-      console.warn("[🫥BlackList] 未找到列表容器:", cfg.listId);
-      return null;
-    }
-  }
-
-  const list = cfg.getList() || [];
-  const keyword = getListSearchKeyword("#" + cfg.searchId);
-  const filtered = keyword
-    ? list.filter((item) =>
-        String(item == null ? "" : item)
-          .toLowerCase()
-          .includes(keyword)
-      )
-    : list;
-
-  listElement.innerHTML = "";
-  filtered.forEach((item) => {
-    listElement.appendChild(
-      createBlacklistListItem(item, () => cfg.onRemove(item))
-    );
-  });
-  Array.from(listElement.children)
-    .reverse()
-    .forEach((item) => listElement.appendChild(item));
-
-  const emptyText =
-    list.length === 0 ? cfg.emptyText : filtered.length === 0 ? "无匹配结果" : null;
-  if (emptyText) {
-    const empty = document.createElement("div");
-    empty.className = "bilibili-blacklist-empty";
-    empty.textContent = emptyText;
-    listElement.appendChild(empty);
-  }
-  return listElement;
-}
-
-function refreshExactMatchList() {
-  const listElement = refreshBlacklistList({
-    listId: "bilibili-blacklist-exact-list",
-    searchId: "bilibili-blacklist-exact-search",
-    cachedElement: exactMatchListElement,
-    getList: () => exactMatchBlacklist,
-    emptyText: "暂无精确匹配屏蔽UP主",
-    onRemove: (upName) => removeFromExactBlacklist(upName),
-  });
-  if (listElement) exactMatchListElement = listElement;
-}
-
-function refreshRegexMatchList() {
-  const listElement = refreshBlacklistList({
-    listId: "bilibili-blacklist-regex-list",
-    searchId: "bilibili-blacklist-regex-search",
-    cachedElement: regexMatchListElement,
-    getList: () => regexMatchBlacklist,
-    emptyText: "暂无正则匹配屏蔽规则",
-    onRemove: (regex) => {
-      const index = regexMatchBlacklist.indexOf(regex);
-      if (index === -1) return;
-      regexMatchBlacklist.splice(index, 1);
-      saveBlacklistsToStorage();
-      invalidateRegexCache();
-      refreshRegexMatchList();
-    },
-  });
-  if (listElement) regexMatchListElement = listElement;
-}
-
-function refreshTagNameList() {
-  const listElement = refreshBlacklistList({
-    listId: "bilibili-blacklist-tname-list",
-    searchId: "bilibili-blacklist-tname-search",
-    cachedElement: tagNameListElement,
-    getList: () => tagNameBlacklist,
-    emptyText: "暂无标签屏蔽规则",
-    onRemove: (tagName) => removeFromTagNameBlacklist(tagName),
-  });
-  if (listElement) tagNameListElement = listElement;
-}
-
-function refreshVideoTagList() {
-  const listElement = refreshBlacklistList({
-    listId: "bilibili-blacklist-video-tag-list",
-    searchId: "bilibili-blacklist-video-tag-search",
-    cachedElement: videoTagListElement,
-    getList: () => videoTagBlacklist,
-    emptyText: "暂无视频标签屏蔽规则",
-    onRemove: (tagName) => removeFromVideoTagBlacklist(tagName),
-  });
-  if (listElement) videoTagListElement = listElement;
-}
-
-function createSettingToggleButton(labelText, configKey, title = null) {
-  const container = document.createElement("div");
-  container.className =
-    "bilibili-blacklist-panel-row bilibili-blacklist-setting-toggle";
-  container.title = title;
-
-  const label = document.createElement("span");
-  label.textContent = labelText;
-
-  const button = document.createElement("button");
-  button.className = "bilibili-blacklist-config-btn";
-
-  function refreshButtonAppearance() {
-    button.textContent = globalPluginConfig[configKey] ? "开启" : "关闭";
-    button.style.backgroundColor = globalPluginConfig[configKey]
-      ? "#fb7299"
-      : "#909399";
-  }
-
-  button.addEventListener("click", () => {
-    globalPluginConfig[configKey] = !globalPluginConfig[configKey];
-    refreshButtonAppearance();
-    saveGlobalConfigToStorage();
-    if (configKey === "flagHoverReveal" && !globalPluginConfig[configKey]) {
-      restoreAllBlockedVideoOverlays();
-    }
-  });
-
-  refreshButtonAppearance();
-
-  container.appendChild(label);
-  container.appendChild(button);
-
-  return container;
-}
-function createSettingInput(
-  labelText,
-  configKey,
-  title = null,
-  constraints = {}
-) {
-  const container = document.createElement("div");
-  container.className =
-    "bilibili-blacklist-panel-row bilibili-blacklist-setting-input-row";
-  container.title = title;
-
-  const label = document.createElement("span");
-  label.textContent = labelText;
-
-  const input = document.createElement("input");
-  input.type = "number";
-  input.className = "bilibili-blacklist-number-input";
-  const { min = 0, max = null, step = null } = constraints;
-  input.min = `${min}`;
-  if (max !== null) input.max = `${max}`;
-  if (step !== null) input.step = `${step}`;
-  input.value = globalPluginConfig[configKey];
-
-  const button = document.createElement("button");
-  button.className =
-    "bilibili-blacklist-config-btn bilibili-blacklist-config-btn-primary";
-  button.textContent = "保存";
-
-  button.addEventListener("click", () => {
-    const val = Number(input.value);
-    const isInRange =
-      input.value.trim() !== "" &&
-      Number.isFinite(val) &&
-      val >= min &&
-      (max === null || val <= max);
-    if (isInRange) {
-      globalPluginConfig[configKey] = val;
-      saveGlobalConfigToStorage();
-    } else {
-      const rangeText = max === null ? `不小于 ${min}` : `${min} 到 ${max}`;
-      alert(`请输入${rangeText}之间的有效数字！`);
-    }
-  });
-  container.appendChild(label);
-  container.appendChild(input);
-  container.appendChild(button);
-
-  return container;
-}
-
-function createSettingSelect(labelText, configKey, title = null, options = []) {
-  const container = document.createElement("div");
-  container.className =
-    "bilibili-blacklist-panel-row bilibili-blacklist-setting-select-row";
-  container.title = title;
-
-  const label = document.createElement("span");
-  label.textContent = labelText;
-
-  const select = document.createElement("select");
-  select.className = "bilibili-blacklist-select";
-  select.addEventListener("change", () => {
-    globalPluginConfig[configKey] = select.value;
-    saveGlobalConfigToStorage();
-  });
-
-  options.forEach((opt) => {
-    const option = document.createElement("option");
-    option.value = opt.value;
-    option.textContent = opt.label;
-    if (String(globalPluginConfig[configKey]) === String(opt.value)) {
-      option.selected = true;
-    }
-    select.appendChild(option);
-  });
-
-  container.appendChild(label);
-  container.appendChild(select);
-  return container;
-}
-
-function refreshConfigSettings() {
-  if (!configListElement) {
-    if (!isBlacklistPanelCreated()) {
-      return;
-    }
-    configListElement = document.querySelector(
-      "#bilibili-blacklist-config-list"
-    );
-    if (!configListElement) {
-      console.warn("[🫥BlackList] configListElement 未定义");
-      return;
-    }
-  }
-  configListElement.innerHTML = "";
-
-  const tempToggleContainer = document.createElement("div");
-  tempToggleContainer.className =
-    "bilibili-blacklist-panel-row bilibili-blacklist-temp-toggle";
-  const tempToggleLabel = document.createElement("span");
-  tempToggleLabel.textContent = "临时开关";
-
-  tempUnblockButton = document.createElement("button");
-  tempUnblockButton.className = "bilibili-blacklist-config-btn";
-  tempUnblockButton.textContent = isShowAllVideos ? "恢复屏蔽" : "取消屏蔽";
-  tempUnblockButton.style.background = isShowAllVideos
-    ? "#dddddd"
-    : "#fb7299";
-  tempUnblockButton.addEventListener("click", toggleShowAllBlockedVideos);
-
-  tempToggleContainer.appendChild(tempToggleLabel);
-  tempToggleContainer.appendChild(tempUnblockButton);
-  configListElement.appendChild(tempToggleContainer);
-
-  const switchTitle = document.createElement("h4");
-  switchTitle.textContent = "屏蔽类型开关";
-  configListElement.appendChild(switchTitle);
-
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "屏蔽标题/Up主名",
-      "flagInfo",
-      "屏蔽标题/Up主名"
-    )
-  );
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "屏蔽分类标签",
-      "flagTName",
-      "通过请求API获取分类标签"
-    )
-  );
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "屏蔽视频标签",
-      "flagVideoTag",
-      "通过 /x/tag/archive/tags 获取视频标签，并自动排除音乐和话题标签"
-    )
-  );
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "屏蔽竖屏视频",
-      "flagVertical",
-      "通过请求API获取视频分辨率"
-    )
-  );
-  configListElement.appendChild(
-    createSettingToggleButton("屏蔽主页推荐", "flagAD", "直播/广告/分区推送")
-  );
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "屏蔽主页视频软广",
-      "flagCM",
-      "cm.bilibili.com软广"
-    )
-  );
-
-  const dataTitle = document.createElement("h4");
-  dataTitle.textContent = "分类数据与缓存";
-  configListElement.appendChild(dataTitle);
-
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "始终获取分类标签",
-      "flagAlwaysFetchTName",
-      "开启(默认)：即使卡片已被UP主名/正则/软广命中，也会在低优先级补一次请求，保证分类标签按钮始终可见。关闭：已命中的卡片不再请求API，队列处理明显更快（搜索页翻页尤其明显），代价是这些卡片上看不到分类标签。"
-    )
-  );
-
-  const tagNameListControlContainer = document.createElement("div");
-  tagNameListControlContainer.className =
-    "bilibili-blacklist-panel-row bilibili-blacklist-cache-control";
-  tagNameListControlContainer.title = "打开视频播放页面可刷新";
-
-  const tagNameListLabel = document.createElement("span");
-  tagNameListLabel.textContent = `分类标签缓存数量: ${tagNameList.length}`;
-
-  const clearTagNameListButton = document.createElement("button");
-  clearTagNameListButton.className =
-    "bilibili-blacklist-config-btn bilibili-blacklist-config-btn-danger";
-  clearTagNameListButton.textContent = "清除";
-  clearTagNameListButton.addEventListener("click", () => {
-    if (confirm("确定要清除分类标签缓存吗？这不会影响已屏蔽的标签，但会使得下次需要重新从API获取标签信息。")) {
-      tagNameList.length = 0;
-      saveTagNameListWithTimestamp();
-      tagNameListLabel.textContent = `分类标签缓存数量: 0`;
-    }
-  });
-
-  tagNameListControlContainer.appendChild(tagNameListLabel);
-  tagNameListControlContainer.appendChild(clearTagNameListButton);
-  configListElement.appendChild(tagNameListControlContainer);
-
-  const blockStatsControlContainer = document.createElement("div");
-  blockStatsControlContainer.className =
-    "bilibili-blacklist-panel-row bilibili-blacklist-cache-control";
-  blockStatsControlContainer.title =
-    "按天累计的屏蔽/拦截统计（面板头部明细里的「累计与趋势」）";
-  const blockStatsLabel = document.createElement("span");
-  const blockStatsTotal = sumBlockStatsBlocked(getBlockStatsSummary().total);
-  blockStatsLabel.textContent = `累计屏蔽统计: ${blockStatsTotal}`;
-  const clearBlockStatsButton = document.createElement("button");
-  clearBlockStatsButton.className =
-    "bilibili-blacklist-config-btn bilibili-blacklist-config-btn-danger";
-  clearBlockStatsButton.textContent = "清除";
-  clearBlockStatsButton.addEventListener("click", () => {
-    if (!confirm("确定要清除累计屏蔽统计吗？（面板头部的今日/近7天/累计与趋势会归零）")) {
-      return;
-    }
-    clearBlockStats();
-    blockStatsLabel.textContent = "累计屏蔽统计: 0";
-    refreshBlockCountDisplay();
-  });
-  blockStatsControlContainer.appendChild(blockStatsLabel);
-  blockStatsControlContainer.appendChild(clearBlockStatsButton);
-  configListElement.appendChild(blockStatsControlContainer);
-
-  configListElement.appendChild(
-    createSettingSelect(
-      "自动连播遇到被屏蔽视频:",
-      "flagSkipBlockedAutoplay",
-      "播放页开启自动连播并播到被屏蔽视频时：切换为未屏蔽视频 / 停止播放 / 不处理（按B站默认继续播放）。",
-      [
-        { value: "skip", label: "切换为未屏蔽视频" },
-        { value: "stop", label: "停止播放" },
-        { value: "off", label: "不处理(默认)" },
-      ]
-    )
-  );
-
-  const displayTitle = document.createElement("h4");
-  displayTitle.textContent = "显示方式";
-  configListElement.appendChild(displayTitle);
-
-  const DISPLAY_MODE_OPTIONS = DISPLAY_MODE_INHERIT_OPTIONS.filter(
-    (opt) => opt.value !== "inherit"
-  );
-  const displayModeRows = [
-    [
-      "卡片遮挡模式(全局):",
-      "blockDisplayMode",
-      "被屏蔽卡片的显示方式：模糊遮盖 / 模糊遮盖加卡比 / 隐藏卡片。",
-      DISPLAY_MODE_OPTIONS,
-    ],
-    [
-      "标题/UP主名行为:",
-      "displayModeInfo",
-      "标题/UP主名命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
-      DISPLAY_MODE_INHERIT_OPTIONS,
-    ],
-    [
-      "广告行为:",
-      "displayModeAD",
-      "广告卡片的显示方式，选择继承全局则跟随上方全局模式。",
-      DISPLAY_MODE_INHERIT_OPTIONS,
-    ],
-    [
-      "分类标签行为:",
-      "displayModeTName",
-      "分类标签命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
-      DISPLAY_MODE_INHERIT_OPTIONS,
-    ],
-    [
-      "视频标签行为:",
-      "displayModeVideoTag",
-      "视频标签命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
-      DISPLAY_MODE_INHERIT_OPTIONS,
-    ],
-    [
-      "竖屏行为:",
-      "displayModeVertical",
-      "竖屏命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
-      DISPLAY_MODE_INHERIT_OPTIONS,
-    ],
-    [
-      "软广(CM)行为:",
-      "displayModeCM",
-      "cm.bilibili.com 软广卡片的显示方式，选择继承全局则跟随上方全局模式。",
-      DISPLAY_MODE_INHERIT_OPTIONS,
-    ],
-  ];
-  displayModeRows.forEach(([label, key, title, options]) => {
-    configListElement.appendChild(
-      createSettingSelect(label, key, title, options)
-    );
-  });
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "加载时立即隐藏卡片",
-      "flagHideOnLoad",
-      "开启：新卡片先用 CSS filter 遮盖（模糊+灰度+降透明度，不插 DOM、不改结构，减少重排闪烁），等分类/竖屏 API 判定完再统一显示——避免“先显示、后被屏蔽导致卡片重排”。关闭：卡片先显示，若稍后被判定屏蔽会产生一次重排（观感更突兀），但处理速度感更快。建议开启。"
-    )
-  );
-
-  const interactTitle = document.createElement("h4");
-  interactTitle.textContent = "交互";
-  configListElement.appendChild(interactTitle);
-
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "悬停后显示被遮挡视频",
-      "flagHoverReveal",
-      "鼠标在被遮挡的视频卡片上停留指定时间后临时显示，移开后重新遮挡。仅在“遮挡被屏蔽视频”开启时生效。"
-    )
-  );
-  configListElement.appendChild(
-    createSettingInput(
-      "悬停显示延迟 (秒):",
-      "hoverRevealDelaySeconds",
-      "允许设置 0.1 到 5 秒。",
-      { min: 0.1, max: 5, step: 0.1 }
-    )
-  );
-
-  const netTitle = document.createElement("h4");
-  netTitle.textContent = "网络与性能";
-  configListElement.appendChild(netTitle);
-
-  configListElement.appendChild(
-    createSettingSelect(
-      "插件日志:",
-      "logLevel",
-      "控制插件往浏览器控制台输出的普通日志。错误与告警不受影响，永远输出。" +
-        "「完全关闭」= 除错误告警外不输出任何日志（默认）；" +
-        "「关键信息」= 分页初始化、自动连播跳转等用户能感知的动作；" +
-        "「全部」= 再加上缓存刷新、观察器重连、每次网络拦截等过程性细节" +
-        "（详细级走 console.debug，DevTools 需把级别切到 Verbose 才看得到）。改后立即生效。",
-      [
-        { value: "off", label: "完全关闭(默认)" },
-        { value: "info", label: "关键信息" },
-        { value: "verbose", label: "全部" },
-      ]
-    )
-  );
-  configListElement.appendChild(
-    createSettingToggleButton(
-      "网络拦截(推荐接口)",
-      "flagNetworkIntercept",
-      "启用后拦截并改写推荐/相关接口响应，命中黑名单的条目不再下发（实验性：会改动 B 站接口响应体，默认关闭；改动后刷新页面生效）。"
-    )
-  );
-  configListElement.appendChild(
-    createSettingInput(
-      "卡片扫描间隔 (ms):",
-      "blockScanInterval",
-      "扫描新卡片的间隔时间，单位 ms。值越小，新卡片隐藏越快，但可能会增加CPU负担。建议值 200ms。"
-    )
-  );
-  configListElement.appendChild(
-    createSettingInput(
-      "视频信息API请求间隔 (ms):",
-      "processQueueInterval",
-      "每个视频获取分类标签/视频分辨率时的API请求间隔时间，单位 ms。值越小处理越快；实测 16ms 一般不触发 B 站 API 限流，但请自行观察网络面板。"
-    )
-  );
-  configListElement.appendChild(
-    createSettingInput(
-      "竖屏视频比例阈值:",
-      "verticalScaleThreshold",
-      "视频宽度/高度小于该阈值时判定为竖屏（0-1）。建议值 0.7。",
-      { min: 0, max: 1, step: 0.05 }
-    )
-  );
-
-  const disclaimer = document.createElement("div");
-  disclaimer.className = "bilibili-blacklist-disclaimer";
-  disclaimer.textContent =
-    "免责声明：本插件由 AI（DeepSeek Harness）自动编写，并非人工逐行开发；" +
-    "使用前请自行评估风险。作者：DeepSeek Harness (AI)。";
-  configListElement.appendChild(disclaimer);
-}
-
-function refreshAllPanelTabs() {
-  refreshExactMatchList();
-  refreshRegexMatchList();
-  refreshTagNameList();
-  refreshVideoTagList();
-  refreshConfigSettings();
-}
-
-function isBlacklistPanelCreated() {
-  const panelInDom = document.querySelector(
-    "#bilibili-blacklist-manager-panel"
-  );
-  if (panelInDom) {
-    if (!managerPanel) {
-      managerPanel = panelInDom;
-    }
-    return true;
-  }
-  return false;
-}
-
-function createBlacklistPanel() {
-  if (isBlacklistPanelCreated()) {
-    return;
-  }
-  managerPanel = document.createElement("div");
-  managerPanel.id = "bilibili-blacklist-manager-panel";
-
-  const tabContainer = document.createElement("div");
-  tabContainer.className = "bilibili-blacklist-tabs";
-
-  const exactContent = document.createElement("div");
-  exactContent.className = "bilibili-blacklist-panel-content";
-  exactContent.style.display = "block";
-
-  const regexContent = document.createElement("div");
-  regexContent.className = "bilibili-blacklist-panel-content";
-  regexContent.style.display = "none";
-
-  const tnameContent = document.createElement("div");
-  tnameContent.className = "bilibili-blacklist-panel-content";
-  tnameContent.style.display = "none";
-
-  const videoTagContent = document.createElement("div");
-  videoTagContent.className = "bilibili-blacklist-panel-content";
-  videoTagContent.style.display = "none";
-
-  const configContent = document.createElement("div");
-  configContent.className = "bilibili-blacklist-panel-content";
-  configContent.style.display = "none";
-
-  const tabs = [
-    { name: "精确匹配(Up名字)", content: exactContent },
-    { name: "正则匹配(Up/标题)", content: regexContent },
-    { name: "屏蔽分类", content: tnameContent },
-    { name: "屏蔽标签", content: videoTagContent },
-    { name: "插件配置", content: configContent },
-  ];
-  tabs.forEach((tabData) => {
-    const tab = document.createElement("div");
-    tab.className = "bilibili-blacklist-tab";
-    tab.textContent = tabData.name;
-    tab.style.borderBottom =
-      tabData.content.style.display === "block"
-        ? "2px solid #fb7299"
-        : "none";
-
-    tab.addEventListener("click", () => {
-      tabs.forEach(({ tab: t, content: c }) => {
-        t.style.borderBottom = "none";
-        c.style.display = "none";
-      });
-      tab.style.borderBottom = "2px solid #fb7299";
-      tabData.content.style.display = "block";
-    });
-
-    tabData.tab = tab;
-    tabContainer.appendChild(tab);
-  });
-
-  const header = document.createElement("div");
-  header.className = "bilibili-blacklist-panel-header";
-
-  blockCountTitleElement = document.createElement("h3");
-  blockCountTitleElement.title =
-    "总数 = UP/标题名 + 广告 + CM 软广 + 分类标签 + 视频标签 + 竖屏";
-
-  const titleWrap = document.createElement("div");
-  titleWrap.className = "bilibili-blacklist-panel-title";
-  titleWrap.appendChild(blockCountTitleElement);
-
-  const statsContainer = document.createElement("div");
-  statsContainer.className = "bilibili-blacklist-stats";
-  blockStatsValueElements = new Map();
-  BLOCK_STATS_GROUPS.forEach((group) => {
-    const groupTitle = document.createElement("div");
-    groupTitle.className = "bilibili-blacklist-stats-group";
-    groupTitle.textContent = group.title;
-    statsContainer.appendChild(groupTitle);
-    group.rows.forEach((row) => {
-      const rowElement = document.createElement("div");
-      rowElement.className = "bilibili-blacklist-stat-row";
-      rowElement.title = row.label;
-      const labelElement = document.createElement("span");
-      labelElement.textContent = row.label;
-      const valueElement = document.createElement("b");
-      valueElement.textContent = "0";
-      rowElement.appendChild(labelElement);
-      rowElement.appendChild(valueElement);
-      statsContainer.appendChild(rowElement);
-      blockStatsValueElements.set(row.key, valueElement);
-    });
-    if (group.withTrend) {
-      const trend = document.createElement("div");
-      trend.className = "bilibili-blacklist-trend";
-      blockTrendBarElements = [];
-      for (let i = 0; i < 7; i++) {
-        const bar = document.createElement("span");
-        bar.className = "bilibili-blacklist-trend-bar";
-        trend.appendChild(bar);
-        blockTrendBarElements.push(bar);
-      }
-      statsContainer.appendChild(trend);
-    }
-  });
-  titleWrap.appendChild(statsContainer);
-  statsContainer.style.display = isBlockStatsExpanded ? "" : "none";
-
-  const headerActions = document.createElement("div");
-  headerActions.className = "bilibili-blacklist-panel-actions";
-
-  const toggleBtn = document.createElement("button");
-  toggleBtn.type = "button";
-  toggleBtn.className = "bilibili-blacklist-panel-toggle";
-  toggleBtn.innerHTML = getChevronIconSVG();
-  const refreshToggleState = () => {
-    toggleBtn.classList.toggle("is-expanded", isBlockStatsExpanded);
-    toggleBtn.title = isBlockStatsExpanded ? "收起统计明细" : "展开统计明细";
-    toggleBtn.setAttribute("aria-label", toggleBtn.title);
-    toggleBtn.setAttribute("aria-expanded", isBlockStatsExpanded ? "true" : "false");
-    statsContainer.style.display = isBlockStatsExpanded ? "" : "none";
-  };
-  toggleBtn.addEventListener("click", () => {
-    isBlockStatsExpanded = !isBlockStatsExpanded;
-    refreshToggleState();
-    if (isBlockStatsExpanded) refreshBlockCountDisplay();
-  });
-  refreshToggleState();
-
-  const closeBtn = document.createElement("button");
-  closeBtn.type = "button";
-  closeBtn.className = "bilibili-blacklist-panel-close";
-  closeBtn.title = "关闭面板";
-  closeBtn.setAttribute("aria-label", "关闭面板");
-  closeBtn.innerHTML = getCloseIconSVG();
-  closeBtn.addEventListener("click", () => {
-    managerPanel.style.display = "none";
-  });
-
-  headerActions.appendChild(toggleBtn);
-  headerActions.appendChild(closeBtn);
-  header.appendChild(titleWrap);
-  header.appendChild(headerActions);
-
-  const contentContainer = document.createElement("div");
-  contentContainer.className = "bilibili-blacklist-panel-body";
-
-  const addExactContainer = document.createElement("div");
-  addExactContainer.className = "bilibili-blacklist-add-row";
-
-  const exactInput = document.createElement("input");
-  exactInput.type = "text";
-  exactInput.placeholder = "输入要屏蔽的UP主名称";
-
-  const addExactBtn = document.createElement("button");
-  addExactBtn.className = "bilibili-blacklist-primary-btn";
-  addExactBtn.textContent = "添加";
-  addExactBtn.addEventListener("click", () => {
-    const upName = exactInput.value.trim();
-    if (upName) {
-      addToExactBlacklist(upName);
-      exactInput.value = "";
-    }
-  });
-  addExactContainer.appendChild(exactInput);
-  addExactContainer.appendChild(addExactBtn);
-  exactContent.appendChild(addExactContainer);
-  exactContent.appendChild(
-    createListSearchInput(
-      "bilibili-blacklist-exact-search",
-      "搜索精确匹配列表（模糊匹配）",
-      refreshExactMatchList
-    )
-  );
-
-  const addRegexContainer = document.createElement("div");
-  addRegexContainer.className = "bilibili-blacklist-add-row";
-
-  const regexInput = document.createElement("input");
-  regexInput.type = "text";
-  regexInput.placeholder = "正则表达式，支持 /pattern/flags（如: /小小.*Official/i）";
-
-  const addRegexBtn = document.createElement("button");
-  addRegexBtn.className = "bilibili-blacklist-primary-btn";
-  addRegexBtn.textContent = "添加";
-  addRegexBtn.addEventListener("click", () => {
-    const regex = regexInput.value.trim();
-    if (regex && !regexMatchBlacklist.includes(regex)) {
-      if (!compileRegex(regex)) {
-        alert("无效的正则表达式（支持 /pattern/flags）");
-        return;
-      }
-      regexMatchBlacklist.push(regex);
-      saveBlacklistsToStorage();
-      invalidateRegexCache();
-      regexInput.value = "";
-      refreshRegexMatchList();
-    }
-  });
-  addRegexContainer.appendChild(regexInput);
-  addRegexContainer.appendChild(addRegexBtn);
-  regexContent.appendChild(addRegexContainer);
-
-  const regexHint = document.createElement("div");
-  regexHint.className = "bilibili-blacklist-regex-hint";
-  regexHint.textContent =
-    "提示：纯文本按“包含”匹配（忽略大小写），短词可能误伤；" +
-    "如需精确/边界匹配请用正则，如 /^米哈游/、/\b原神\b/。";
-  regexHint.style.cssText =
-    "font-size:12px;color:#999;margin:0 0 12px;line-height:1.5;";
-  regexContent.appendChild(regexHint);
-  regexContent.appendChild(
-    createListSearchInput(
-      "bilibili-blacklist-regex-search",
-      "搜索正则匹配列表（模糊匹配）",
-      refreshRegexMatchList
-    )
-  );
-
-  const addVideoTagContainer = document.createElement("div");
-  addVideoTagContainer.className = "bilibili-blacklist-add-row";
-
-  const videoTagInput = document.createElement("input");
-  videoTagInput.type = "text";
-  videoTagInput.placeholder = "输入要屏蔽的视频标签（不含音乐/话题）";
-
-  const addVideoTagBtn = document.createElement("button");
-  addVideoTagBtn.className = "bilibili-blacklist-primary-btn";
-  addVideoTagBtn.textContent = "添加";
-  addVideoTagBtn.addEventListener("click", () => {
-    const tagName = videoTagInput.value.trim();
-    if (tagName) {
-      addToVideoTagBlacklist(tagName);
-      videoTagInput.value = "";
-    }
-  });
-  addVideoTagContainer.appendChild(videoTagInput);
-  addVideoTagContainer.appendChild(addVideoTagBtn);
-  videoTagContent.appendChild(addVideoTagContainer);
-  videoTagContent.appendChild(
-    createListSearchInput(
-      "bilibili-blacklist-video-tag-search",
-      "搜索视频标签列表（模糊匹配）",
-      refreshVideoTagList
-    )
-  );
-
-  exactMatchListElement = document.createElement("ul");
-  exactMatchListElement.id = "bilibili-blacklist-exact-list";
-
-  regexMatchListElement = document.createElement("ul");
-  regexMatchListElement.id = "bilibili-blacklist-regex-list";
-
-  tagNameListElement = document.createElement("ul");
-  tagNameListElement.id = "bilibili-blacklist-tname-list";
-
-  videoTagListElement = document.createElement("ul");
-  videoTagListElement.id = "bilibili-blacklist-video-tag-list";
-
-  configListElement = document.createElement("ul");
-  configListElement.id = "bilibili-blacklist-config-list";
-
-  refreshAllPanelTabs();
-  exactContent.appendChild(exactMatchListElement);
-  regexContent.appendChild(regexMatchListElement);
-  tnameContent.appendChild(
-    createListSearchInput(
-      "bilibili-blacklist-tname-search",
-      "搜索分类标签列表（模糊匹配）",
-      refreshTagNameList
-    )
-  );
-  tnameContent.appendChild(tagNameListElement);
-  videoTagContent.appendChild(videoTagListElement);
-  configContent.appendChild(configListElement);
-
-  contentContainer.appendChild(exactContent);
-  contentContainer.appendChild(regexContent);
-  contentContainer.appendChild(tnameContent);
-  contentContainer.appendChild(videoTagContent);
-  contentContainer.appendChild(configContent);
-
-  managerPanel.appendChild(tabContainer);
-  managerPanel.appendChild(header);
-  managerPanel.appendChild(contentContainer);
-
-  document.body.appendChild(managerPanel);
-
-  refreshBlockCountDisplay();
-
-  return managerPanel;
-}
 
 GM_addStyle(`
   /* ===== 屏蔽按钮容器 ===== */
@@ -3715,6 +2603,7 @@ GM_addStyle(`
   }
 `);
 
+
 function getCloseIconSVG() {
   return `
       <svg width="18" height="18" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
@@ -3753,6 +2642,113 @@ function getKirbySVG() {
       </svg>
   `;
 }
+
+
+function createBlockUpButton(upName) {
+  const button = document.createElement("div");
+  button.className = "bilibili-blacklist-block-btn";
+  button.textContent = "屏蔽";
+  button.title = `屏蔽: ${upName}`;
+  button.dataset.upName = upName || "";
+
+  return button;
+}
+
+function createTNameBlockButton(tagName) {
+  const button = document.createElement("span");
+  button.className = "bilibili-blacklist-tname";
+  button.textContent = tagName;
+  button.title = `屏蔽: ${tagName}`;
+  button.dataset.tagName = tagName || "";
+
+  return button;
+}
+
+function createVideoTagBlockButton(tagName) {
+  const button = document.createElement("span");
+  button.className = "bilibili-blacklist-video-tag";
+  button.textContent = tagName;
+  button.title = `屏蔽视频标签: ${tagName}`;
+  button.dataset.videoTag = tagName || "";
+  return button;
+}
+
+const CARD_ROOT_SELECTORS_FOR_BUTTON = [
+  ".bili-video-card",
+  ".video-page-card-small",
+  ".feed-card",
+];
+
+function findCardForButton(button) {
+  const container = button.closest(".bilibili-blacklist-block-container");
+  if (!container) return null;
+  for (const sel of CARD_ROOT_SELECTORS_FOR_BUTTON) {
+    const node = container.closest(sel);
+    if (node) return node;
+  }
+  return container.parentElement;
+}
+
+let cardButtonDelegationInstalled = false;
+
+function setupCardButtonDelegation() {
+  if (cardButtonDelegationInstalled) return;
+  cardButtonDelegationInstalled = true;
+  document.addEventListener(
+    "click",
+    function (e) {
+      const t = e.target;
+      if (!t || typeof t.closest !== "function") return;
+
+      const blockBtn = t.closest(".bilibili-blacklist-block-btn");
+      if (blockBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        const upName = blockBtn.dataset.upName || "";
+        if (!upName) return;
+        addToExactBlacklist(upName, findCardForButton(blockBtn));
+        return;
+      }
+
+      const reasonBtn = t.closest(".bilibili-blacklist-block-reason");
+      if (reasonBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!reasonBtn.classList.contains("is-cancellable")) return;
+        const blockType = reasonBtn.dataset.blockType || "";
+        const blockValue = reasonBtn.dataset.blockValue || "";
+        if (!blockType || !blockValue) return;
+        cancelCardBlockReason(findCardForButton(reasonBtn), blockType, blockValue);
+        return;
+      }
+
+      const videoTagBtn = t.closest(".bilibili-blacklist-video-tag");
+      if (videoTagBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        const tagName = videoTagBtn.dataset.videoTag || "";
+        if (!tagName) return;
+        addToVideoTagBlacklist(tagName, findCardForButton(videoTagBtn));
+        return;
+      }
+
+      const tnameBtn = t.closest(".bilibili-blacklist-tname");
+      if (tnameBtn) {
+        e.stopPropagation();
+        e.preventDefault();
+        const tagName = tnameBtn.dataset.tagName || "";
+        if (!tagName) return;
+        addToTagNameBlacklist(tagName, findCardForButton(tnameBtn));
+      }
+    },
+    true
+  );
+}
+
+
+const hoverRevealBoundCards = new WeakSet();
+const hoverRevealTimers = new WeakMap();
+const kirbyFadeTimers = new WeakMap();
 
 function fadeInKirbyOverlay(overlay) {
   if (!overlay) return;
@@ -3903,6 +2899,1075 @@ function removeKirbyOverlay(cardElement) {
   if (kirbyWrapper) {
     kirbyWrapper.remove();
   }
+}
+
+
+function resolveHeaderEntryHost() {
+  return (
+    document.querySelector(".right-entry__main") ||
+    document.querySelector(".right-entry") ||
+    null
+  );
+}
+
+let headerButtonRetryScheduled = false;
+function scheduleHeaderButtonRetry() {
+  if (headerButtonRetryScheduled) return;
+  headerButtonRetryScheduled = true;
+  waitForContainer(".right-entry__main, .right-entry", () => {
+    headerButtonRetryScheduled = false;
+    addBlacklistManagerButton();
+  }, 250, 15000);
+}
+
+function addBlacklistManagerButton() {
+  if (!globalPluginConfig.flagHeaderButton) return;
+  const rightEntry = resolveHeaderEntryHost();
+  if (!rightEntry) {
+    console.warn("[🫥BlackList] 未找到右侧导航栏(.right-entry__main / .right-entry)");
+    return;
+  }
+  if (rightEntry.querySelector("#bilibili-blacklist-manager-button")) return;
+  if (isCurrentPageVideo() && !videoHeaderReady) return;
+  if (!rightEntry.querySelector("a, li, .right-entry__item")) {
+    scheduleHeaderButtonRetry();
+    return;
+  }
+
+  const listItem = document.createElement("li");
+  listItem.id = "bilibili-blacklist-manager-button";
+  listItem.className = "v-popover-wrap";
+
+  const button = document.createElement("div");
+  button.className = "right-entry-item";
+
+  const icon = document.createElement("div");
+  icon.className = "right-entry__outside";
+  icon.innerHTML = getKirbySVG();
+
+  blockCountDisplayElement = document.createElement("span");
+  blockCountDisplayElement.textContent = `0`;
+
+  button.appendChild(icon);
+  button.appendChild(blockCountDisplayElement);
+  listItem.appendChild(button);
+
+  if (rightEntry.children.length > 1) {
+    rightEntry.insertBefore(listItem, rightEntry.children[1]);
+  } else {
+    rightEntry.appendChild(listItem);
+  }
+
+  listItem.addEventListener("click", () => {
+    managerPanel.style.display =
+      managerPanel.style.display === "flex" ? "none" : "flex";
+  });
+}
+
+function toggleHeaderButtonVisibility() {
+  const btn = document.querySelector("#bilibili-blacklist-manager-button");
+  if (globalPluginConfig.flagHeaderButton) {
+    if (btn) {
+      btn.style.display = "";
+    } else {
+      addBlacklistManagerButton();
+    }
+  } else if (btn) {
+    btn.remove();
+  }
+}
+
+function initTampermonkeyMenu() {
+  if (typeof GM_registerMenuCommand !== "function") {
+    console.warn(
+      "[🫥BlackList] 当前未获得 GM_registerMenuCommand 授权，油猴菜单里的" +
+        "「显示/隐藏顶部管理按钮」「打开黑名单管理面板」不会出现。" +
+        "这是油猴在脚本更新后没有重新批准新增 @grant 导致的（不是脚本错误）：" +
+        "请在 Tampermonkey 里删除本脚本后重新安装一次（或在该脚本的设置里重新确认权限）。"
+    );
+    return;
+  }
+  GM_registerMenuCommand("显示/隐藏顶部管理按钮", () => {
+    globalPluginConfig.flagHeaderButton = !globalPluginConfig.flagHeaderButton;
+    saveGlobalConfigToStorage();
+    toggleHeaderButtonVisibility();
+  });
+  GM_registerMenuCommand("打开黑名单管理面板", () => {
+    if (!managerPanel) createBlacklistPanel();
+    if (managerPanel) managerPanel.style.display = "flex";
+  });
+  blInfo(
+    "[🫥BlackList] 已注册油猴菜单：显示/隐藏顶部管理按钮、打开黑名单管理面板"
+  );
+}
+
+
+const BLOCK_STATS_GROUPS = [
+  {
+    title: "屏蔽原因明细",
+    rows: getBlockTypeKeys().map((type) => ({
+      key: type,
+      label: getBlockTypeLabel(type, true),
+      getText: () => String(getBlockCounter(type)),
+    })),
+  },
+  {
+    title: "网络与请求",
+    rows: [
+      { key: "netItems", label: "网络拦截", getText: () => `${countNetworkInterceptItems} 条` },
+      { key: "netAds", label: "其中广告", getText: () => `${countNetworkInterceptAds} 条` },
+      { key: "netResponses", label: "拦截响应", getText: () => `${countNetworkInterceptResponses} 次` },
+      { key: "processed", label: "已判定卡片", getText: () => String(countProcessedCards) },
+      { key: "apiView", label: "view 请求", getText: () => String(countApiViewRequests) },
+      { key: "apiTag", label: "标签请求", getText: () => String(countApiTagRequests) },
+    ],
+  },
+  {
+    title: "累计与趋势（按天持久化）",
+    withTrend: true,
+    rows: [
+      {
+        key: "todayBlocks",
+        label: "今日屏蔽",
+        getText: (ctx) => String(sumBlockStatsBlocked(ctx.summary.today)),
+      },
+      {
+        key: "last7Blocks",
+        label: "近 7 天屏蔽",
+        getText: (ctx) => String(sumBlockStatsBlocked(ctx.summary.last7)),
+      },
+      {
+        key: "totalBlocks",
+        label: "累计屏蔽",
+        getText: (ctx) => String(sumBlockStatsBlocked(ctx.summary.total)),
+      },
+      {
+        key: "todayNet",
+        label: "今日拦截",
+        getText: (ctx) => `${ctx.summary.today.netItems} 条`,
+      },
+      {
+        key: "last7Net",
+        label: "近 7 天拦截",
+        getText: (ctx) => `${ctx.summary.last7.netItems} 条`,
+      },
+      {
+        key: "totalProcessed",
+        label: "累计判定",
+        getText: (ctx) => String(ctx.summary.total.processed),
+      },
+    ],
+  },
+];
+
+function refreshBlockCountDisplay() {
+  const headerNotReady = isCurrentPageVideo() && !videoHeaderReady;
+  if (!headerNotReady && blockCountDisplayElement) {
+    blockCountDisplayElement.textContent = `${blockedVideoCards.size}`;
+  }
+  if (blockCountTitleElement) {
+    blockCountTitleElement.textContent = `已屏蔽视频 ${blockedVideoCards.size}`;
+  }
+  if (!blockStatsValueElements) return;
+  if (!isBlockStatsExpanded) return;
+  const ctx = {
+    summary: getBlockStatsSummary(),
+    series: getBlockStatsDailySeries(7),
+  };
+  BLOCK_STATS_GROUPS.forEach((group) => {
+    group.rows.forEach((row) => {
+      const valueElement = blockStatsValueElements.get(row.key);
+      if (valueElement) valueElement.textContent = row.getText(ctx);
+    });
+  });
+  if (blockTrendBarElements && ctx.series) {
+    const maxBlocks = Math.max(
+      1,
+      ctx.series.reduce((m, d) => Math.max(m, d.blocks), 0)
+    );
+    ctx.series.forEach((day, index) => {
+      const bar = blockTrendBarElements[index];
+      if (!bar) return;
+      bar.style.height =
+        (day.blocks === 0 ? 2 : Math.max(3, Math.round((day.blocks / maxBlocks) * 26))) +
+        "px";
+      bar.style.backgroundColor = day.blocks === 0 ? "#e3e5e8" : "#fb7299";
+      bar.title = `${day.key.slice(5)}：屏蔽 ${day.blocks} 条（网络拦截 ${day.intercepted} 条）`;
+    });
+  }
+}
+
+
+function createPanelButton(text, bgColor, onClick) {
+  const button = document.createElement("button");
+  button.className = "bilibili-blacklist-panel-btn";
+  button.textContent = text;
+  button.style.background = bgColor;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function createBlacklistListItem(contentText, onRemoveClick) {
+  const item = document.createElement("li");
+  item.className = "bilibili-blacklist-list-item";
+
+  const content = document.createElement("span");
+  content.textContent = contentText;
+  const removeBtn = createPanelButton("移除", "#f56c6c", onRemoveClick);
+
+  item.appendChild(content);
+  item.appendChild(removeBtn);
+  return item;
+}
+
+function getListSearchKeyword(selector) {
+  const el = document.querySelector(selector);
+  return el ? (el.value || "").trim().toLowerCase() : "";
+}
+
+function createListSearchInput(id, placeholder, onInput) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = id;
+  input.placeholder = placeholder;
+  input.className = "bilibili-blacklist-search-input";
+  input.addEventListener("input", onInput);
+  return input;
+}
+
+function refreshBlacklistList(cfg) {
+  let listElement = cfg.cachedElement;
+  if (!listElement) {
+    if (!isBlacklistPanelCreated()) return null;
+    listElement = document.querySelector("#" + cfg.listId);
+    if (!listElement) {
+      console.warn("[🫥BlackList] 未找到列表容器:", cfg.listId);
+      return null;
+    }
+  }
+
+  const list = cfg.getList() || [];
+  const keyword = getListSearchKeyword("#" + cfg.searchId);
+  const filtered = keyword
+    ? list.filter((item) =>
+        String(item == null ? "" : item)
+          .toLowerCase()
+          .includes(keyword)
+      )
+    : list;
+
+  listElement.innerHTML = "";
+  filtered.forEach((item) => {
+    listElement.appendChild(
+      createBlacklistListItem(item, () => cfg.onRemove(item))
+    );
+  });
+  Array.from(listElement.children)
+    .reverse()
+    .forEach((item) => listElement.appendChild(item));
+
+  const emptyText =
+    list.length === 0 ? cfg.emptyText : filtered.length === 0 ? "无匹配结果" : null;
+  if (emptyText) {
+    const empty = document.createElement("div");
+    empty.className = "bilibili-blacklist-empty";
+    empty.textContent = emptyText;
+    listElement.appendChild(empty);
+  }
+  return listElement;
+}
+
+function refreshExactMatchList() {
+  const listElement = refreshBlacklistList({
+    listId: "bilibili-blacklist-exact-list",
+    searchId: "bilibili-blacklist-exact-search",
+    cachedElement: exactMatchListElement,
+    getList: () => exactMatchBlacklist,
+    emptyText: "暂无精确匹配屏蔽UP主",
+    onRemove: (upName) => removeFromExactBlacklist(upName),
+  });
+  if (listElement) exactMatchListElement = listElement;
+}
+
+function refreshRegexMatchList() {
+  const listElement = refreshBlacklistList({
+    listId: "bilibili-blacklist-regex-list",
+    searchId: "bilibili-blacklist-regex-search",
+    cachedElement: regexMatchListElement,
+    getList: () => regexMatchBlacklist,
+    emptyText: "暂无正则匹配屏蔽规则",
+    onRemove: (regex) => {
+      const index = regexMatchBlacklist.indexOf(regex);
+      if (index === -1) return;
+      regexMatchBlacklist.splice(index, 1);
+      saveBlacklistsToStorage();
+      invalidateRegexCache();
+      refreshRegexMatchList();
+    },
+  });
+  if (listElement) regexMatchListElement = listElement;
+}
+
+function refreshTagNameList() {
+  const listElement = refreshBlacklistList({
+    listId: "bilibili-blacklist-tname-list",
+    searchId: "bilibili-blacklist-tname-search",
+    cachedElement: tagNameListElement,
+    getList: () => tagNameBlacklist,
+    emptyText: "暂无标签屏蔽规则",
+    onRemove: (tagName) => removeFromTagNameBlacklist(tagName),
+  });
+  if (listElement) tagNameListElement = listElement;
+}
+
+function refreshVideoTagList() {
+  const listElement = refreshBlacklistList({
+    listId: "bilibili-blacklist-video-tag-list",
+    searchId: "bilibili-blacklist-video-tag-search",
+    cachedElement: videoTagListElement,
+    getList: () => videoTagBlacklist,
+    emptyText: "暂无视频标签屏蔽规则",
+    onRemove: (tagName) => removeFromVideoTagBlacklist(tagName),
+  });
+  if (listElement) videoTagListElement = listElement;
+}
+
+function refreshAllPanelTabs() {
+  refreshExactMatchList();
+  refreshRegexMatchList();
+  refreshTagNameList();
+  refreshVideoTagList();
+  refreshConfigSettings();
+}
+
+function isBlacklistPanelCreated() {
+  const panelInDom = document.querySelector(
+    "#bilibili-blacklist-manager-panel"
+  );
+  if (panelInDom) {
+    if (!managerPanel) {
+      managerPanel = panelInDom;
+    }
+    return true;
+  }
+  return false;
+}
+
+function createBlacklistPanel() {
+  if (isBlacklistPanelCreated()) {
+    return;
+  }
+  managerPanel = document.createElement("div");
+  managerPanel.id = "bilibili-blacklist-manager-panel";
+
+  const tabContainer = document.createElement("div");
+  tabContainer.className = "bilibili-blacklist-tabs";
+
+  const exactContent = document.createElement("div");
+  exactContent.className = "bilibili-blacklist-panel-content";
+  exactContent.style.display = "block";
+
+  const regexContent = document.createElement("div");
+  regexContent.className = "bilibili-blacklist-panel-content";
+  regexContent.style.display = "none";
+
+  const tnameContent = document.createElement("div");
+  tnameContent.className = "bilibili-blacklist-panel-content";
+  tnameContent.style.display = "none";
+
+  const videoTagContent = document.createElement("div");
+  videoTagContent.className = "bilibili-blacklist-panel-content";
+  videoTagContent.style.display = "none";
+
+  const configContent = document.createElement("div");
+  configContent.className = "bilibili-blacklist-panel-content";
+  configContent.style.display = "none";
+
+  const tabs = [
+    { name: "精确匹配(Up名字)", content: exactContent },
+    { name: "正则匹配(Up/标题)", content: regexContent },
+    { name: "屏蔽分类", content: tnameContent },
+    { name: "屏蔽标签", content: videoTagContent },
+    { name: "插件配置", content: configContent },
+  ];
+  tabs.forEach((tabData) => {
+    const tab = document.createElement("div");
+    tab.className = "bilibili-blacklist-tab";
+    tab.textContent = tabData.name;
+    tab.style.borderBottom =
+      tabData.content.style.display === "block"
+        ? "2px solid #fb7299"
+        : "none";
+
+    tab.addEventListener("click", () => {
+      tabs.forEach(({ tab: t, content: c }) => {
+        t.style.borderBottom = "none";
+        c.style.display = "none";
+      });
+      tab.style.borderBottom = "2px solid #fb7299";
+      tabData.content.style.display = "block";
+    });
+
+    tabData.tab = tab;
+    tabContainer.appendChild(tab);
+  });
+
+  const header = document.createElement("div");
+  header.className = "bilibili-blacklist-panel-header";
+
+  blockCountTitleElement = document.createElement("h3");
+  blockCountTitleElement.title =
+    "总数 = UP/标题名 + 广告 + CM 软广 + 分类标签 + 视频标签 + 竖屏";
+
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "bilibili-blacklist-panel-title";
+  titleWrap.appendChild(blockCountTitleElement);
+
+  const statsContainer = document.createElement("div");
+  statsContainer.className = "bilibili-blacklist-stats";
+  blockStatsValueElements = new Map();
+  BLOCK_STATS_GROUPS.forEach((group) => {
+    const groupTitle = document.createElement("div");
+    groupTitle.className = "bilibili-blacklist-stats-group";
+    groupTitle.textContent = group.title;
+    statsContainer.appendChild(groupTitle);
+    group.rows.forEach((row) => {
+      const rowElement = document.createElement("div");
+      rowElement.className = "bilibili-blacklist-stat-row";
+      rowElement.title = row.label;
+      const labelElement = document.createElement("span");
+      labelElement.textContent = row.label;
+      const valueElement = document.createElement("b");
+      valueElement.textContent = "0";
+      rowElement.appendChild(labelElement);
+      rowElement.appendChild(valueElement);
+      statsContainer.appendChild(rowElement);
+      blockStatsValueElements.set(row.key, valueElement);
+    });
+    if (group.withTrend) {
+      const trend = document.createElement("div");
+      trend.className = "bilibili-blacklist-trend";
+      blockTrendBarElements = [];
+      for (let i = 0; i < 7; i++) {
+        const bar = document.createElement("span");
+        bar.className = "bilibili-blacklist-trend-bar";
+        trend.appendChild(bar);
+        blockTrendBarElements.push(bar);
+      }
+      statsContainer.appendChild(trend);
+    }
+  });
+  titleWrap.appendChild(statsContainer);
+  statsContainer.style.display = isBlockStatsExpanded ? "" : "none";
+
+  const headerActions = document.createElement("div");
+  headerActions.className = "bilibili-blacklist-panel-actions";
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.type = "button";
+  toggleBtn.className = "bilibili-blacklist-panel-toggle";
+  toggleBtn.innerHTML = getChevronIconSVG();
+  const refreshToggleState = () => {
+    toggleBtn.classList.toggle("is-expanded", isBlockStatsExpanded);
+    toggleBtn.title = isBlockStatsExpanded ? "收起统计明细" : "展开统计明细";
+    toggleBtn.setAttribute("aria-label", toggleBtn.title);
+    toggleBtn.setAttribute("aria-expanded", isBlockStatsExpanded ? "true" : "false");
+    statsContainer.style.display = isBlockStatsExpanded ? "" : "none";
+  };
+  toggleBtn.addEventListener("click", () => {
+    isBlockStatsExpanded = !isBlockStatsExpanded;
+    refreshToggleState();
+    if (isBlockStatsExpanded) refreshBlockCountDisplay();
+  });
+  refreshToggleState();
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "bilibili-blacklist-panel-close";
+  closeBtn.title = "关闭面板";
+  closeBtn.setAttribute("aria-label", "关闭面板");
+  closeBtn.innerHTML = getCloseIconSVG();
+  closeBtn.addEventListener("click", () => {
+    managerPanel.style.display = "none";
+  });
+
+  headerActions.appendChild(toggleBtn);
+  headerActions.appendChild(closeBtn);
+  header.appendChild(titleWrap);
+  header.appendChild(headerActions);
+
+  const contentContainer = document.createElement("div");
+  contentContainer.className = "bilibili-blacklist-panel-body";
+
+  const addExactContainer = document.createElement("div");
+  addExactContainer.className = "bilibili-blacklist-add-row";
+
+  const exactInput = document.createElement("input");
+  exactInput.type = "text";
+  exactInput.placeholder = "输入要屏蔽的UP主名称";
+
+  const addExactBtn = document.createElement("button");
+  addExactBtn.className = "bilibili-blacklist-primary-btn";
+  addExactBtn.textContent = "添加";
+  addExactBtn.addEventListener("click", () => {
+    const upName = exactInput.value.trim();
+    if (upName) {
+      addToExactBlacklist(upName);
+      exactInput.value = "";
+    }
+  });
+  addExactContainer.appendChild(exactInput);
+  addExactContainer.appendChild(addExactBtn);
+  exactContent.appendChild(addExactContainer);
+  exactContent.appendChild(
+    createListSearchInput(
+      "bilibili-blacklist-exact-search",
+      "搜索精确匹配列表（模糊匹配）",
+      refreshExactMatchList
+    )
+  );
+
+  const addRegexContainer = document.createElement("div");
+  addRegexContainer.className = "bilibili-blacklist-add-row";
+
+  const regexInput = document.createElement("input");
+  regexInput.type = "text";
+  regexInput.placeholder = "正则表达式，支持 /pattern/flags（如: /小小.*Official/i）";
+
+  const addRegexBtn = document.createElement("button");
+  addRegexBtn.className = "bilibili-blacklist-primary-btn";
+  addRegexBtn.textContent = "添加";
+  addRegexBtn.addEventListener("click", () => {
+    const regex = regexInput.value.trim();
+    if (regex && !regexMatchBlacklist.includes(regex)) {
+      if (!compileRegex(regex)) {
+        alert("无效的正则表达式（支持 /pattern/flags）");
+        return;
+      }
+      regexMatchBlacklist.push(regex);
+      saveBlacklistsToStorage();
+      invalidateRegexCache();
+      regexInput.value = "";
+      refreshRegexMatchList();
+    }
+  });
+  addRegexContainer.appendChild(regexInput);
+  addRegexContainer.appendChild(addRegexBtn);
+  regexContent.appendChild(addRegexContainer);
+
+  const regexHint = document.createElement("div");
+  regexHint.className = "bilibili-blacklist-regex-hint";
+  regexHint.textContent =
+    "提示：纯文本按“包含”匹配（忽略大小写），短词可能误伤；" +
+    "如需精确/边界匹配请用正则，如 /^米哈游/、/\b原神\b/。";
+  regexHint.style.cssText =
+    "font-size:12px;color:#999;margin:0 0 12px;line-height:1.5;";
+  regexContent.appendChild(regexHint);
+  regexContent.appendChild(
+    createListSearchInput(
+      "bilibili-blacklist-regex-search",
+      "搜索正则匹配列表（模糊匹配）",
+      refreshRegexMatchList
+    )
+  );
+
+  const addVideoTagContainer = document.createElement("div");
+  addVideoTagContainer.className = "bilibili-blacklist-add-row";
+
+  const videoTagInput = document.createElement("input");
+  videoTagInput.type = "text";
+  videoTagInput.placeholder = "输入要屏蔽的视频标签（不含音乐/话题）";
+
+  const addVideoTagBtn = document.createElement("button");
+  addVideoTagBtn.className = "bilibili-blacklist-primary-btn";
+  addVideoTagBtn.textContent = "添加";
+  addVideoTagBtn.addEventListener("click", () => {
+    const tagName = videoTagInput.value.trim();
+    if (tagName) {
+      addToVideoTagBlacklist(tagName);
+      videoTagInput.value = "";
+    }
+  });
+  addVideoTagContainer.appendChild(videoTagInput);
+  addVideoTagContainer.appendChild(addVideoTagBtn);
+  videoTagContent.appendChild(addVideoTagContainer);
+  videoTagContent.appendChild(
+    createListSearchInput(
+      "bilibili-blacklist-video-tag-search",
+      "搜索视频标签列表（模糊匹配）",
+      refreshVideoTagList
+    )
+  );
+
+  exactMatchListElement = document.createElement("ul");
+  exactMatchListElement.id = "bilibili-blacklist-exact-list";
+
+  regexMatchListElement = document.createElement("ul");
+  regexMatchListElement.id = "bilibili-blacklist-regex-list";
+
+  tagNameListElement = document.createElement("ul");
+  tagNameListElement.id = "bilibili-blacklist-tname-list";
+
+  videoTagListElement = document.createElement("ul");
+  videoTagListElement.id = "bilibili-blacklist-video-tag-list";
+
+  configListElement = document.createElement("ul");
+  configListElement.id = "bilibili-blacklist-config-list";
+
+  refreshAllPanelTabs();
+  exactContent.appendChild(exactMatchListElement);
+  regexContent.appendChild(regexMatchListElement);
+  tnameContent.appendChild(
+    createListSearchInput(
+      "bilibili-blacklist-tname-search",
+      "搜索分类标签列表（模糊匹配）",
+      refreshTagNameList
+    )
+  );
+  tnameContent.appendChild(tagNameListElement);
+  videoTagContent.appendChild(videoTagListElement);
+  configContent.appendChild(configListElement);
+
+  contentContainer.appendChild(exactContent);
+  contentContainer.appendChild(regexContent);
+  contentContainer.appendChild(tnameContent);
+  contentContainer.appendChild(videoTagContent);
+  contentContainer.appendChild(configContent);
+
+  managerPanel.appendChild(tabContainer);
+  managerPanel.appendChild(header);
+  managerPanel.appendChild(contentContainer);
+
+  document.body.appendChild(managerPanel);
+
+  refreshBlockCountDisplay();
+
+  return managerPanel;
+}
+
+
+const DISPLAY_MODE_LABELS = {
+  inherit: "继承全局",
+  blur: "模糊遮盖",
+  kirby: "模糊遮盖加卡比",
+  hide: "隐藏卡片",
+};
+const DISPLAY_MODE_INHERIT_OPTIONS = getDisplayModeDomain().map((value) => ({
+  value: value,
+  label: DISPLAY_MODE_LABELS[value],
+}));
+const SETTING_ENUM_LABELS = {
+  flagSkipBlockedAutoplay: {
+    skip: "切换为未屏蔽视频",
+    stop: "停止播放",
+    off: "不处理(默认)",
+  },
+  logLevel: {
+    off: "完全关闭(默认)",
+    info: "关键信息",
+    verbose: "全部",
+  },
+};
+
+function createEnumOptions(configKey) {
+  const labels = SETTING_ENUM_LABELS[configKey] || {};
+  return SETTING_ENUMS[configKey].map((value) => ({
+    value: value,
+    label: labels[value] || value,
+  }));
+}
+
+function createSettingToggleButton(labelText, configKey, title = null) {
+  const container = document.createElement("div");
+  container.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-setting-toggle";
+  container.title = title;
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  const button = document.createElement("button");
+  button.className = "bilibili-blacklist-config-btn";
+
+  function refreshButtonAppearance() {
+    button.textContent = globalPluginConfig[configKey] ? "开启" : "关闭";
+    button.style.backgroundColor = globalPluginConfig[configKey]
+      ? "#fb7299"
+      : "#909399";
+  }
+
+  button.addEventListener("click", () => {
+    globalPluginConfig[configKey] = !globalPluginConfig[configKey];
+    refreshButtonAppearance();
+    saveGlobalConfigToStorage();
+    if (configKey === "flagHoverReveal" && !globalPluginConfig[configKey]) {
+      restoreAllBlockedVideoOverlays();
+    }
+  });
+
+  refreshButtonAppearance();
+
+  container.appendChild(label);
+  container.appendChild(button);
+
+  return container;
+}
+function createSettingInput(labelText, configKey, title = null) {
+  const { min = 0, max = null, step = null } = SETTING_CONSTRAINTS[configKey] || {};
+  const rangeText = max === null ? `不小于 ${min}` : `${min} ~ ${max}`;
+
+  const container = document.createElement("div");
+  container.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-setting-input-row";
+  container.title = (title ? title : "") + `（有效范围：${rangeText}）`;
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.className = "bilibili-blacklist-number-input";
+  input.min = `${min}`;
+  if (max !== null) input.max = `${max}`;
+  if (step !== null) input.step = `${step}`;
+  input.value = globalPluginConfig[configKey];
+
+  const button = document.createElement("button");
+  button.className =
+    "bilibili-blacklist-config-btn bilibili-blacklist-config-btn-primary";
+  button.textContent = "保存";
+
+  button.addEventListener("click", () => {
+    const val = Number(input.value);
+    const isInRange =
+      input.value.trim() !== "" &&
+      Number.isFinite(val) &&
+      val >= min &&
+      (max === null || val <= max);
+    if (isInRange) {
+      globalPluginConfig[configKey] = val;
+      saveGlobalConfigToStorage();
+    } else {
+      alert(`请输入${rangeText}之间的有效数字！`);
+    }
+  });
+  container.appendChild(label);
+  container.appendChild(input);
+  container.appendChild(button);
+
+  return container;
+}
+
+function createSettingSelect(labelText, configKey, title = null, options = []) {
+  const container = document.createElement("div");
+  container.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-setting-select-row";
+  container.title = title;
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  const select = document.createElement("select");
+  select.className = "bilibili-blacklist-select";
+  select.addEventListener("change", () => {
+    globalPluginConfig[configKey] = select.value;
+    saveGlobalConfigToStorage();
+  });
+
+  options.forEach((opt) => {
+    const option = document.createElement("option");
+    option.value = opt.value;
+    option.textContent = opt.label;
+    if (String(globalPluginConfig[configKey]) === String(opt.value)) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+
+  container.appendChild(label);
+  container.appendChild(select);
+  return container;
+}
+
+function refreshConfigSettings() {
+  if (!configListElement) {
+    if (!isBlacklistPanelCreated()) {
+      return;
+    }
+    configListElement = document.querySelector(
+      "#bilibili-blacklist-config-list"
+    );
+    if (!configListElement) {
+      console.warn("[🫥BlackList] configListElement 未定义");
+      return;
+    }
+  }
+  configListElement.innerHTML = "";
+
+  const tempToggleContainer = document.createElement("div");
+  tempToggleContainer.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-temp-toggle";
+  const tempToggleLabel = document.createElement("span");
+  tempToggleLabel.textContent = "临时开关";
+
+  tempUnblockButton = document.createElement("button");
+  tempUnblockButton.className = "bilibili-blacklist-config-btn";
+  tempUnblockButton.textContent = isShowAllVideos ? "恢复屏蔽" : "取消屏蔽";
+  tempUnblockButton.style.background = isShowAllVideos
+    ? "#dddddd"
+    : "#fb7299";
+  tempUnblockButton.addEventListener("click", toggleShowAllBlockedVideos);
+
+  tempToggleContainer.appendChild(tempToggleLabel);
+  tempToggleContainer.appendChild(tempUnblockButton);
+  configListElement.appendChild(tempToggleContainer);
+
+  const switchTitle = document.createElement("h4");
+  switchTitle.textContent = "屏蔽类型开关";
+  configListElement.appendChild(switchTitle);
+
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "屏蔽标题/Up主名",
+      "flagInfo",
+      "屏蔽标题/Up主名"
+    )
+  );
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "屏蔽分类标签",
+      "flagTName",
+      "通过请求API获取分类标签"
+    )
+  );
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "屏蔽视频标签",
+      "flagVideoTag",
+      "通过 /x/tag/archive/tags 获取视频标签，并自动排除音乐和话题标签"
+    )
+  );
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "屏蔽竖屏视频",
+      "flagVertical",
+      "通过请求API获取视频分辨率"
+    )
+  );
+  configListElement.appendChild(
+    createSettingToggleButton("屏蔽主页推荐", "flagAD", "直播/广告/分区推送")
+  );
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "屏蔽主页视频软广",
+      "flagCM",
+      "cm.bilibili.com软广"
+    )
+  );
+
+  const dataTitle = document.createElement("h4");
+  dataTitle.textContent = "分类数据与缓存";
+  configListElement.appendChild(dataTitle);
+
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "始终获取分类标签",
+      "flagAlwaysFetchTName",
+      "开启(默认)：即使卡片已被UP主名/正则/软广命中，也会在低优先级补一次请求，保证分类标签按钮始终可见。关闭：已命中的卡片不再请求API，队列处理明显更快（搜索页翻页尤其明显），代价是这些卡片上看不到分类标签。"
+    )
+  );
+
+  const tagNameListControlContainer = document.createElement("div");
+  tagNameListControlContainer.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-cache-control";
+  tagNameListControlContainer.title = "打开视频播放页面可刷新";
+
+  const tagNameListLabel = document.createElement("span");
+  tagNameListLabel.textContent = `分类标签缓存数量: ${tagNameList.length}`;
+
+  const clearTagNameListButton = document.createElement("button");
+  clearTagNameListButton.className =
+    "bilibili-blacklist-config-btn bilibili-blacklist-config-btn-danger";
+  clearTagNameListButton.textContent = "清除";
+  clearTagNameListButton.addEventListener("click", () => {
+    if (confirm("确定要清除分类标签缓存吗？这不会影响已屏蔽的标签，但会使得下次需要重新从API获取标签信息。")) {
+      tagNameList.length = 0;
+      saveTagNameListWithTimestamp();
+      tagNameListLabel.textContent = `分类标签缓存数量: 0`;
+    }
+  });
+
+  tagNameListControlContainer.appendChild(tagNameListLabel);
+  tagNameListControlContainer.appendChild(clearTagNameListButton);
+  configListElement.appendChild(tagNameListControlContainer);
+
+  const blockStatsControlContainer = document.createElement("div");
+  blockStatsControlContainer.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-cache-control";
+  blockStatsControlContainer.title =
+    "按天累计的屏蔽/拦截统计（面板头部明细里的「累计与趋势」）";
+  const blockStatsLabel = document.createElement("span");
+  const blockStatsTotal = sumBlockStatsBlocked(getBlockStatsSummary().total);
+  blockStatsLabel.textContent = `累计屏蔽统计: ${blockStatsTotal}`;
+  const clearBlockStatsButton = document.createElement("button");
+  clearBlockStatsButton.className =
+    "bilibili-blacklist-config-btn bilibili-blacklist-config-btn-danger";
+  clearBlockStatsButton.textContent = "清除";
+  clearBlockStatsButton.addEventListener("click", () => {
+    if (!confirm("确定要清除累计屏蔽统计吗？（面板头部的今日/近7天/累计与趋势会归零）")) {
+      return;
+    }
+    clearBlockStats();
+    blockStatsLabel.textContent = "累计屏蔽统计: 0";
+    refreshBlockCountDisplay();
+  });
+  blockStatsControlContainer.appendChild(blockStatsLabel);
+  blockStatsControlContainer.appendChild(clearBlockStatsButton);
+  configListElement.appendChild(blockStatsControlContainer);
+
+  configListElement.appendChild(
+    createSettingSelect(
+      "自动连播遇到被屏蔽视频:",
+      "flagSkipBlockedAutoplay",
+      "播放页开启自动连播并播到被屏蔽视频时：切换为未屏蔽视频 / 停止播放 / 不处理（按B站默认继续播放）。",
+      createEnumOptions("flagSkipBlockedAutoplay")
+    )
+  );
+
+  const displayTitle = document.createElement("h4");
+  displayTitle.textContent = "显示方式";
+  configListElement.appendChild(displayTitle);
+
+  const DISPLAY_MODE_OPTIONS = DISPLAY_MODE_INHERIT_OPTIONS.filter(
+    (opt) => opt.value !== "inherit"
+  );
+  const displayModeRows = [
+    [
+      "卡片遮挡模式(全局):",
+      "blockDisplayMode",
+      "被屏蔽卡片的显示方式：模糊遮盖 / 模糊遮盖加卡比 / 隐藏卡片。",
+      DISPLAY_MODE_OPTIONS,
+    ],
+    [
+      "标题/UP主名行为:",
+      "displayModeInfo",
+      "标题/UP主名命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
+      DISPLAY_MODE_INHERIT_OPTIONS,
+    ],
+    [
+      "广告行为:",
+      "displayModeAD",
+      "广告卡片的显示方式，选择继承全局则跟随上方全局模式。",
+      DISPLAY_MODE_INHERIT_OPTIONS,
+    ],
+    [
+      "分类标签行为:",
+      "displayModeTName",
+      "分类标签命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
+      DISPLAY_MODE_INHERIT_OPTIONS,
+    ],
+    [
+      "视频标签行为:",
+      "displayModeVideoTag",
+      "视频标签命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
+      DISPLAY_MODE_INHERIT_OPTIONS,
+    ],
+    [
+      "竖屏行为:",
+      "displayModeVertical",
+      "竖屏命中的卡片显示方式，选择继承全局则跟随上方全局模式。",
+      DISPLAY_MODE_INHERIT_OPTIONS,
+    ],
+    [
+      "软广(CM)行为:",
+      "displayModeCM",
+      "cm.bilibili.com 软广卡片的显示方式，选择继承全局则跟随上方全局模式。",
+      DISPLAY_MODE_INHERIT_OPTIONS,
+    ],
+  ];
+  displayModeRows.forEach(([label, key, title, options]) => {
+    configListElement.appendChild(
+      createSettingSelect(label, key, title, options)
+    );
+  });
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "加载时立即隐藏卡片",
+      "flagHideOnLoad",
+      "开启：新卡片先用 CSS filter 遮盖（模糊+灰度+降透明度，不插 DOM、不改结构，减少重排闪烁），等分类/竖屏 API 判定完再统一显示——避免“先显示、后被屏蔽导致卡片重排”。关闭：卡片先显示，若稍后被判定屏蔽会产生一次重排（观感更突兀），但处理速度感更快。建议开启。"
+    )
+  );
+
+  const interactTitle = document.createElement("h4");
+  interactTitle.textContent = "交互";
+  configListElement.appendChild(interactTitle);
+
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "悬停后显示被遮挡视频",
+      "flagHoverReveal",
+      "鼠标在被遮挡的视频卡片上停留指定时间后临时显示，移开后重新遮挡。仅在“遮挡被屏蔽视频”开启时生效。"
+    )
+  );
+  configListElement.appendChild(
+    createSettingInput(
+      "悬停显示延迟 (秒):",
+      "hoverRevealDelaySeconds",
+      "鼠标在被遮挡的卡片上停留多久后临时显示。"
+    )
+  );
+
+  const netTitle = document.createElement("h4");
+  netTitle.textContent = "网络与性能";
+  configListElement.appendChild(netTitle);
+
+  configListElement.appendChild(
+    createSettingSelect(
+      "插件日志:",
+      "logLevel",
+      "控制插件往浏览器控制台输出的普通日志。错误与告警不受影响，永远输出。" +
+        "「完全关闭」= 除错误告警外不输出任何日志（默认）；" +
+        "「关键信息」= 分页初始化、自动连播跳转等用户能感知的动作；" +
+        "「全部」= 再加上缓存刷新、观察器重连、每次网络拦截等过程性细节" +
+        "（详细级走 console.debug，DevTools 需把级别切到 Verbose 才看得到）。改后立即生效。",
+      createEnumOptions("logLevel")
+    )
+  );
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "网络拦截(推荐接口)",
+      "flagNetworkIntercept",
+      "启用后拦截并改写推荐/相关接口响应，命中黑名单的条目不再下发（实验性：会改动 B 站接口响应体，默认关闭；改动后刷新页面生效）。"
+    )
+  );
+  configListElement.appendChild(
+    createSettingInput(
+      "卡片扫描间隔 (ms):",
+      "blockScanInterval",
+      "扫描新卡片的间隔时间，单位 ms。值越小，新卡片隐藏越快，但可能会增加CPU负担。建议值 200ms。"
+    )
+  );
+  configListElement.appendChild(
+    createSettingInput(
+      "视频信息API请求间隔 (ms):",
+      "processQueueInterval",
+      "每个视频获取分类标签/视频分辨率时的API请求间隔时间，单位 ms。值越小处理越快；实测 16ms 一般不触发 B 站 API 限流，但请自行观察网络面板。"
+    )
+  );
+  configListElement.appendChild(
+    createSettingInput(
+      "竖屏视频比例阈值:",
+      "verticalScaleThreshold",
+      "视频宽度/高度小于该阈值时判定为竖屏。建议值 0.7。"
+    )
+  );
+
+  const disclaimer = document.createElement("div");
+  disclaimer.className = "bilibili-blacklist-disclaimer";
+  disclaimer.textContent =
+    "免责声明：本插件由 AI（DeepSeek Harness）自动编写，并非人工逐行开发；" +
+    "使用前请自行评估风险。作者：DeepSeek Harness (AI)。";
+  configListElement.appendChild(disclaimer);
 }
 
 document.addEventListener("visibilitychange", () => {
@@ -4764,33 +4829,6 @@ function buildTitleInfoMapFromInitialState() {
   return map;
 }
 
-function isVideoTagNameBlacklisted(data) {
-  const checkTname = (tname) => {
-    if (!tname) return false;
-    if (tagNameBlacklist.includes(tname)) return true;
-    const mapped = getTagNameByV2(tname);
-    if (mapped !== null && tagNameBlacklist.includes(mapped)) return true;
-    return false;
-  };
-  if (checkTname(data.tname)) return true;
-  if (checkTname(data.tname_v2)) return true;
-  if (data.tid_v2 !== undefined && data.tid_v2 !== null) {
-    const obj = getTagNameById(data.tid_v2);
-    if (obj) {
-      if (checkTname(obj.name)) return true;
-      if (obj.name_v2 && checkTname(obj.name_v2)) return true;
-    }
-  }
-  return false;
-}
-
-function isVerticalVideo(data) {
-  if (data.dimension && data.dimension.width && data.dimension.height) {
-    const dimension = data.dimension.width / data.dimension.height;
-    return dimension < globalPluginConfig.verticalScaleThreshold;
-  }
-  return false;
-}
 
 async function isBlockedByTagOrVertical(bvid) {
   const cfg = globalPluginConfig;
@@ -4798,7 +4836,7 @@ async function isBlockedByTagOrVertical(bvid) {
   if (!bvid) return false;
   const data = await getBilibiliVideoApiData(bvid);
   if (!data) return false;
-  if (cfg.flagTName && isVideoTagNameBlacklisted(data)) return true;
+  if (cfg.flagTName && matchTNameInData(data)) return true;
   if (cfg.flagVertical && isVerticalVideo(data)) return true;
   return false;
 }
@@ -4838,7 +4876,7 @@ async function isPlayingVideoBlacklisted(info, bv) {
         const dUpName = (data.owner && data.owner.name) || "";
         if (dUpName && isBlacklisted(dUpName, data.title)) return true;
       }
-      if (cfg.flagTName && isVideoTagNameBlacklisted(data)) return true;
+      if (cfg.flagTName && matchTNameInData(data)) return true;
       if (cfg.flagVertical && isVerticalVideo(data)) return true;
     }
   }
@@ -4962,11 +5000,12 @@ async function getFirstNonBlockedFromDom() {
 async function getFirstNonBlockedFromApi(curBv) {
   if (!curBv) return null;
   try {
-    const res = await fetch(
-      `https://api.bilibili.com/x/web-interface/archive/related?bvid=${curBv}`
+    const json = await requestBiliApiJson(
+      `https://api.bilibili.com/x/web-interface/archive/related?bvid=${curBv}`,
+      null,
+      "[🫥BlackList] 获取相关推荐失败:"
     );
-    const json = await res.json();
-    if (json.code !== 0 || !Array.isArray(json.data)) return null;
+    if (!json || json.code !== 0 || !Array.isArray(json.data)) return null;
     for (const item of json.data) {
       if (!item.bvid || item.bvid === curBv) continue;
       const upName = (item.owner && item.owner.name) || "";
@@ -5200,13 +5239,6 @@ function probeInterceptPayload(url, parsed) {
   }
 }
 
-var STREAM_REASON_TEXT = {
-  ad: "广告",
-  info: "UP/标题名",
-  tname: "分类标签",
-  videoTag: "视频标签",
-  vertical: "竖屏"
-};
 
 function getStreamBlockReason(item) {
   if (!item) return null;
@@ -5227,7 +5259,7 @@ function getStreamBlockReason(item) {
 
   var viewCached = bvApiDataCache.get(bvid);
   if (viewCached && viewCached.data && Date.now() < viewCached.expire) {
-    if (globalPluginConfig.flagTName && isVideoTagNameBlacklisted(viewCached.data)) {
+    if (globalPluginConfig.flagTName && matchTNameInData(viewCached.data)) {
       return "tname";
     }
     if (globalPluginConfig.flagVertical && isVerticalVideo(viewCached.data)) {
@@ -5242,10 +5274,7 @@ function getStreamBlockReason(item) {
     tagCached.data &&
     Date.now() < tagCached.expire
   ) {
-    var tags = getEligibleVideoTags(tagCached.data);
-    for (var i = 0; i < tags.length; i++) {
-      if (videoTagBlacklist.indexOf(tags[i]) !== -1) return "videoTag";
-    }
+    if (matchVideoTagInData(tagCached.data)) return "videoTag";
   }
 
   return null;
@@ -5268,7 +5297,7 @@ function filterStreamItems(items) {
 
 function describeStreamReasons(byReason) {
   var parts = Object.keys(byReason).map(function (key) {
-    return (STREAM_REASON_TEXT[key] || key) + " " + byReason[key];
+    return getBlockTypeLabel(key, true) + " " + byReason[key];
   });
   return parts.length ? "（" + parts.join("、") + "）" : "";
 }

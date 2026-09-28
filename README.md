@@ -153,17 +153,28 @@
 bilibili-blacklist/
 ├── build.js                     # 构建脚本（合并模块 -> 单个 .user.js，支持 --dev）
 ├── build.config.json            # 构建配置（userscript 元数据 + 模块顺序 + 输出文件 + devModules）
-├── package.json                 # npm 脚本（build / build:dev / dev）
+├── package.json                 # npm 脚本（build / build:dev / dev / check）
 ├── README.md / CHANGELOG.md
 ├── dist/
-│   └── bilibili-blacklist.user.js   # 发布产物（入库，GreasyFork 链接指向它）
+│   ├── bilibili-blacklist.user.js       # 发布产物（入库，GreasyFork 链接指向它）
+│   └── bilibili-blacklist.dev.user.js   # 调试产物（不入库，本地 dev server 用）
 ├── src/
-│   ├── storage/storage.js       # 黑名单 + 配置 + 正则编译缓存（GM 存储）
+│   ├── domain/block-types.js    # 屏蔽类型注册表（显示模式 / 计数 / 原因文案的唯一真源）
+│   ├── domain/matchers.js       # 分类标签 / 视频标签 / 竖屏判定（唯一真源）
+│   ├── data/settings.js         # 配置默认值 + 取值约束 + 归一化（唯一真源）
+│   ├── storage/storage.js       # 黑名单 + 配置读写 + 正则编译缓存（GM 存储）
 │   ├── utils/utils.js           # 分区表缓存 / feed 增量更新
-│   ├── core/core.js             # 卡片查找 / 屏蔽 / 黑名单增删 / 显示模式
+│   ├── core/core.js             # 卡片查找 / 屏蔽 / 黑名单增删
 │   ├── core/stats.js            # 按天持久化统计
 │   ├── core/video-data.js       # 队列判定 + view / 视频标签接口
-│   ├── ui/ui.js                 # 顶栏入口 + 管理面板 + 遮挡层
+│   ├── ui/styles.js             # 全部 CSS（GM_addStyle 注入）+ 卡比渐隐时长常量
+│   ├── ui/icons.js              # 内联 SVG 图标（关闭 / 箭头 / 卡比）
+│   ├── ui/card-buttons.js       # 卡片上的屏蔽/标签按钮 + 统一事件委托
+│   ├── ui/overlay.js            # 遮盖层（blur / kirby）+ 悬停临时显示
+│   ├── ui/header-button.js      # 顶栏入口 + 油猴菜单
+│   ├── ui/stats-display.js      # 面板头部统计明细（行定义 + 刷新）
+│   ├── ui/panel.js              # 管理面板骨架 + 4 个黑名单列表
+│   ├── ui/settings-panel.js     # 「插件配置」页（由配置约束表驱动）
 │   ├── observer/observer.js     # 增量 MutationObserver（含观察根重连）
 │   ├── pages/pages.js           # 分页初始化 + SPA 变化监听
 │   ├── ads/ads.js               # 广告屏蔽（预覆盖 / 判定三段式）
@@ -172,11 +183,18 @@ bilibili-blacklist/
 │   ├── debug/dev-test.js        # 调试/测试入口（仅 dev 构建注入）
 │   └── main.js                  # 主入口：兼容晚注入的立即初始化
 ├── scripts/
-│   └── dev.js                   # 一键开发脚本（以 dev 构建启动）
+│   ├── dev.js                   # 一键开发脚本（以 dev 构建启动）
+│   └── check-bundle.js          # 产物冒烟检查（零依赖：求值 + 初始化 + 面板结构断言）
 └── test/
     ├── bilibili-blacklist.dev.user.js  # 油猴加载器（装一次）
     └── s.bat                    # Windows 双击启动开发环境
 ```
+
+> `build.config.json` 的 `src.modules` **顺序就是构建后的求值顺序**（模块被拼进同一个 IIFE）：
+> `domain/block-types.js`、`data/settings.js` 必须先于 `storage.js` 求值；
+> `ui/styles.js` 放在 ui 系列最前，是为了让样式注入顺序与拆分前一致（先插件主样式、后 ads.js 的广告预覆盖）。
+> 构建时会校验 `src/` 下每个 `.js` 都已登记 —— 漏登记会直接报错，而不是静默不打包。
+> 另外，新增/修改屏蔽类型、配置项、统计项时请只改对应的「唯一真源」，其余位置都是派生的。
 
 ---
 
@@ -186,9 +204,21 @@ bilibili-blacklist/
 npm run build        # 发布构建
 npm run build:dev    # 开发构建（含调试入口）
 node build.js        # 等价于 npm run build
+npm run check        # 产物冒烟检查（需先构建；见下）
 ```
 
-构建产物：`dist/bilibili-blacklist.user.js`
+构建产物：
+
+- `npm run build` → `dist/bilibili-blacklist.user.js`（**发布产物**，入库，GreasyFork 指向它）
+- `npm run build:dev` → `dist/bilibili-blacklist.dev.user.js`（**调试产物**，不入库，`@name` 带 ` -Dev` 后缀）
+
+`npm run check` 跑 `scripts/check-bundle.js`：用一套最小 DOM 桩把**真实产物**装载起来，
+验证「可整包求值（无语法/求值顺序错误）→ 顶层声明无重复 → 触发 DOMContentLoaded 后
+面板/列表/设置页能建出来（18 行统计明细、5 个页签、7 根趋势柱）」，并扫描产物里
+重复的顶层 `function/let/const/var`。零第三方依赖，不需要浏览器或 jsdom；
+**不覆盖**真实选择器、接口与视觉行为（那些仍需在 B 站页面上人工验证）。
+
+两者文件名不同，因此跑 `npm run dev` / `npm run build:dev` 不会覆盖入库的发布产物。
 
 > **注意**：发布构建**不会包含**调试/测试方法（`window.__blacklistExpose`、`window.__blacklistInterceptors`、
 > `window.__blockTestRun` 等）；只有 `--dev` 构建会附加 `src/debug/dev-test.js`。

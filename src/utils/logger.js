@@ -22,7 +22,7 @@
  *   新增错误/告警则直接用 console.error / console.warn，不要走本模块。
  */
 
-// 级别取值表与默认值定义在 storage.js 的 defaultGlobalPluginConfig.logLevel
+// 级别取值表与默认值定义在 data/settings.js 的 defaultGlobalPluginConfig.logLevel
 // （那里负责校验/修复非法取值）。本模块只负责"按级别决定要不要输出"。
 
 /** 当前是否输出「关键信息」及以上（info / verbose） */
