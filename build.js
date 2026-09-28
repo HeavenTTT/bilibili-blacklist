@@ -248,7 +248,13 @@ function buildBody() {
     if (!fs.existsSync(full)) {
       throw new Error(`模块文件不存在: ${full}`);
     }
-    const content = fs.readFileSync(full, 'utf8').trim();
+    // 行尾统一为 LF：个别源文件是 CRLF（observer / pages / utils），原样拼接会让产物
+    // 变成 CRLF/LF 混杂，而 .gitattributes 要求 LF（eol=lf）—— 后果是每次构建后 git
+    // 都把已入库的 dist 判成“已改动”，并提示 “CRLF will be replaced by LF”。
+    const content = fs
+      .readFileSync(full, 'utf8')
+      .replace(/\r\n/g, '\n')
+      .trim();
     parts.push(content);
   }
   return parts.join('\n\n') + '\n';
