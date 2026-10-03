@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Bilibili-BlackList
 // @namespace   https://github.com/HeavenTTT/bilibili-blacklist
-// @version     2.0.1
+// @version     2.0.2
 // @author      HeavenTTT
 // @description Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match       *://*.bilibili.com/*
@@ -2607,10 +2607,14 @@ GM_addStyle(`
     border: 1px solid #fb7299;
   }
 
-  /* 注：原先还有一条 .bilibili-blacklist-grayscale { filter: grayscale(95%) }，
-   * 被空间页用来把"已屏蔽的 UP"整页灰度。因为会连「我追的合集/收藏夹」里的
-   * 无关视频一起灰掉（见 pages.js 里 addBlockButtonToUserSpace 的注释），已移除；
-   * 现在空间页只用按钮文案 + 名字删除线表达屏蔽状态。 */
+  /* ===== 灰度效果：空间页「已屏蔽 UP」整页黑白 =====
+   * 由 pages.js 的 addBlockButtonToUserSpace 按屏蔽状态给 document.body 增删。
+   * 2.0.1 曾移除过这条规则（理由是 favlist/合集页里与该 UP 无关的视频也被灰掉），
+   * 现已按需求恢复；不要因为同样的理由再次删除 —— 那会让空间页完全没有整体视觉提示。
+   * 若要去掉副作用，请改成全屏 backdrop-filter 遮罩层，而不是删掉这条规则。 */
+  .bilibili-blacklist-grayscale {
+    filter: grayscale(95%);
+  }
 `);
 
 
@@ -4499,11 +4503,13 @@ function addBlockButtonToUserSpace(upNameElement) {
       button.style.backgroundColor = "#dddddd";
       button.style.border = "1px solid #ccc";
       upNameElement.style.textDecoration = "line-through";
+      document.body.classList.add("bilibili-blacklist-grayscale");
     } else {
       button.textContent = "屏蔽";
       button.style.backgroundColor = "#fb7299";
       button.style.border = "1px solid #fb7299";
       upNameElement.style.textDecoration = "none";
+      document.body.classList.remove("bilibili-blacklist-grayscale");
     }
   };
 

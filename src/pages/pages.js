@@ -552,14 +552,17 @@ function addBlockButtonToUserSpace(upNameElement) {
   button.className = "bilibili-blacklist-up-block-btn";
   button.textContent = "屏蔽";
 
-  // 刷新按钮状态（**不再给整页加灰度**）
+  // 刷新按钮状态，并按屏蔽状态给整页加/去灰度
   //
-  // 旧实现会在空间主人命中黑名单时给 document.body 加 .bilibili-blacklist-grayscale
-  // （filter: grayscale(95%)）。结果是整个空间页面——包括「我追的合集/收藏夹」里
-  // 与本 UP 无关的视频、合集封面、收藏夹列表——一起变灰，看起来就像"这些视频被误判覆盖"。
-  // 实测：在 favlist 页面把空间主人加进黑名单后，整页（含 95 个合集视频）全部变灰。
-  // 现在只保留按钮文案（已屏蔽）与名字删除线：既表达了"该 UP 已屏蔽"，
-  // 又不会覆盖页面内容。若要恢复视觉提示，请只对空间头部区块加类，不要动 document.body。
+  // ⚠️ 命中黑名单时给 document.body 加 .bilibili-blacklist-grayscale
+  // （filter: grayscale(95%)）是**有意保留**的既有行为：空间主人被屏蔽 → 整个空间页黑白。
+  // 2.0.1 曾以"会误伤合集/收藏夹"为由删掉它，现已按需求恢复（见 CHANGELOG 的 [2.0.2] 条目）。
+  // 已知代价，删之前请先确认这不是需求：
+  //   1) 在 favlist / 合集页，与该 UP 无关的合集视频也会一起变灰；
+  //   2) filter 会为 position: fixed 的后代建立包含块，B 站吸顶栏改为随页面滚动；
+  //   3) 插件自己的管理面板（position: fixed）同样会变灰。
+  // 若要去掉这些代价，正确做法是把效果改成全屏 backdrop-filter 遮罩层（不动 document.body），
+  // 而不是删掉这个类 —— 删掉等于空间页完全失去整体视觉提示。
   const refreshButtonStatus = () => {
     const blocked = isBlacklisted(upName);
     if (blocked) {
@@ -567,11 +570,13 @@ function addBlockButtonToUserSpace(upNameElement) {
       button.style.backgroundColor = "#dddddd";
       button.style.border = "1px solid #ccc";
       upNameElement.style.textDecoration = "line-through"; // 添加删除线
+      document.body.classList.add("bilibili-blacklist-grayscale"); // 添加整页灰度
     } else {
       button.textContent = "屏蔽";
       button.style.backgroundColor = "#fb7299";
       button.style.border = "1px solid #fb7299";
       upNameElement.style.textDecoration = "none"; // 移除删除线
+      document.body.classList.remove("bilibili-blacklist-grayscale"); // 移除整页灰度
     }
   };
 

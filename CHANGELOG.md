@@ -1,5 +1,21 @@
 # 更新记录 (Changelog)
 
+## [2.0.2] - 修复版
+
+### 修复
+
+- **恢复用户空间页的整页灰度**：`2.0.1` 移除了空间主人命中黑名单时的 `document.body`
+  灰度类与 `.bilibili-blacklist-grayscale` 规则，导致对被屏蔽 UP 的空间页（`space.bilibili.com`）
+  不再有任何整体视觉提示。现已恢复为 `2.0.1` 之前的行为：
+  - `src/pages/pages.js`：`addBlockButtonToUserSpace` 按屏蔽状态增删
+    `document.body` 上的 `bilibili-blacklist-grayscale`；
+  - `src/ui/styles.js`：恢复 `.bilibili-blacklist-grayscale { filter: grayscale(95%) }`。
+
+  这是**有意保留**的行为，请勿以「会误伤合集/收藏夹」为由再次移除（这正是 `2.0.1` 的改动）。
+  已知代价：`favlist` / 合集页中与该 UP 无关的视频一并变灰；`filter` 为 `position: fixed`
+  的后代建立包含块，B 站吸顶栏改为随页面滚动；插件管理面板同样变灰。若要消除这些副作用，
+  应改为全屏 `backdrop-filter` 遮罩层，而不是删掉灰度。
+
 ## [2.0.1] - 修复版
 
 ### 修复
