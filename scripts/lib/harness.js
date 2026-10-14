@@ -17,12 +17,40 @@
  */
 
 /**
+ * 深拷贝 GM 存储里的值（只处理 JSON 能表达的结构：原始值 / 数组 / 普通对象）。
+ * GM_setValue 存的是生产代码里的**活对象引用**（storage.js 直接存 globalPluginConfig），
+ * 若把引用原样交给测试，测试一改就改到了插件内部状态 —— 所以读存储统一走副本。
+ * `seen` 记录已拷贝过的对象，避免自引用结构死循环。
+ * @param {*} value
+ * @param {Map<object, *>} [seen]
+ */
+function cloneStoredValue(value, seen) {
+  if (value === null || typeof value !== 'object') return value;
+  const memo = seen || new Map();
+  if (memo.has(value)) return memo.get(value);
+  if (Array.isArray(value)) {
+    const copy = [];
+    memo.set(value, copy);
+    value.forEach((item) => copy.push(cloneStoredValue(item, memo)));
+    return copy;
+  }
+  const copy = {};
+  memo.set(value, copy);
+  Object.keys(value).forEach((key) => {
+    copy[key] = cloneStoredValue(value[key], memo);
+  });
+  return copy;
+}
+
+/**
  * 创建一个隔离的 DOM 桩 + 沙箱，用来装载构建产物。
  * @param {object} [options]
  * @param {string} [options.code] - 构建产物源码；给了就顺便求值。
  * @param {object} [options.location] - 覆盖 location 字段（hostname / pathname / href …）。
  * @param {string} [options.upNameText] - 空间页的 UP 名。给了就模拟
  *   `document.querySelector("#h-name, .nickname")` 命中该元素（即空间页已渲染头部）。
+ * @param {object} [options.gmStore] - 初始 GM 存储（顶层浅拷贝进沙箱，之后 GM_setValue
+ *   写的是沙箱自己那份，不会污染调用方传入的对象）。
  * @returns {object} 桩与断言辅助。
  */
 function createHarness(options) {
@@ -78,12 +106,6 @@ function createHarness(options) {
       __listeners: {},
     };
     Object.assign(el, {
-      get children() {
-        return el.childNodes.filter((n) => n.nodeType === 1);
-      },
-      get firstChild() {
-        return el.childNodes[0] || null;
-      },
       appendChild(child) {
         if (child.parentElement) child.parentElement.removeChild(child);
         el.childNodes.push(child);
@@ -149,6 +171,19 @@ function createHarness(options) {
         return { left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0 };
       },
     });
+    // children / firstChild 必须是**访问器**（真实 DOM 里它们随 DOM 变化）：
+    // 写在 Object.assign 的源对象里当 getter 会被拷贝时求值一次，
+    // 于是永远定格为「创建瞬间的空数组 / null」—— 桩会因此与浏览器行为不一致。
+    Object.defineProperty(el, 'children', {
+      get: () => el.childNodes.filter((n) => n.nodeType === 1),
+      enumerable: true,
+      configurable: true,
+    });
+    Object.defineProperty(el, 'firstChild', {
+      get: () => el.childNodes[0] || null,
+      enumerable: true,
+      configurable: true,
+    });
     const classList = createClassList(el);
     el.classList = classList;
     Object.defineProperty(el, 'className', {
@@ -191,7 +226,9 @@ function createHarness(options) {
 
   const styles = [];
   const logged = { warn: [], error: [] };
-  const gmStore = {};
+  // 初始 GM 存储：浅拷贝一份。GM_setValue 之后写的是这份副本，
+  // 调用方传进来的预置对象（例如 { globalConfig: {…} }）不会被测试过程改到。
+  const gmStore = Object.assign({}, opts.gmStore || {});
 
   const location = Object.assign(
     {
@@ -268,6 +305,14 @@ function createHarness(options) {
     styles,
     logged,
     gmStore,
+    /**
+     * 读当前 GM 存储里某个 key 的值；返回**副本**（改它不影响存储，也不影响插件内部状态）。
+     * @param {string} key
+     * @param {*} [fallback] key 不存在（undefined）时返回它。
+     */
+    getGmValue(key, fallback) {
+      return gmStore[key] === undefined ? fallback : cloneStoredValue(gmStore[key]);
+    },
     CREATED,
     createElement,
     upNameElement,

@@ -73,6 +73,9 @@ const pendingFilterCards = new WeakSet();
 // “未处理”遮盖使用的 filter 参数（单一真源）。
 // 卡片走 JS 逐元素设置 style.filter；播放页广告走 ads.js 里的同参数 CSS 规则，
 // 两边视觉完全一致，调整时只需改这一处。
+// 注意：这是**卡片判定中的遮盖**，与「管理面板半透明滤镜」（flagPanelGlass /
+// panelGlassOpacity，见 ui/panel.js 的 applyPanelGlassStyle）毫无关系——后者管的是面板外观，
+// 两者虽然都用了 blur/opacity，但改一个不该动另一个。
 const PENDING_FILTER_STYLE = "blur(8px) grayscale(0.5) opacity(0.4)";
 
 // 用于不同页面UP主名称选择器

@@ -37,6 +37,62 @@ const SETTING_ENUM_LABELS = {
   },
 };
 
+// 「面板半透明滤镜」当前这批控件的引用。配置页每次 refreshConfigSettings 都会整块重建，
+// 这里始终指向最新实例，好让开关切换/拖动时就地更新禁用态与百分比文本，而不必重建配置页。
+let panelGlassRangeInput = null;
+let panelGlassValueLabel = null;
+let panelGlassResetButton = null;
+
+/**
+ * 把数值配置的透明度格式化成面板上的百分比文本（0.85 → "85%"）。
+ * 先乘 100 再 Math.round：0.05 步进的小数二进制表示并不精确（0.85 * 100 = 84.999…），
+ * 直接拼接会显示出 "84.99999999999999%" 这种噪声。
+ * @param {number} value
+ * @returns {string}
+ */
+function formatPanelGlassOpacity(value) {
+  return Math.round(Number(value) * 100) + "%";
+}
+
+/**
+ * 面板滤镜相关设置变化后的统一收敛点：开关与滑块/重置按钮共用同一份逻辑，
+ * 保证「改动立即生效」与「控件状态同步」两件事只写一遍，不会改一处漏一处。
+ */
+function onPanelGlassSettingChanged() {
+  applyPanelGlassStyle();
+  refreshPanelGlassControls();
+}
+
+/**
+ * 按当前配置刷新面板滤镜控件：滑块/重置按钮的禁用状态、滑块位置与百分比文本。
+ *
+ * 只读 globalPluginConfig、不写回配置，也不碰面板本身（外观生效归 applyPanelGlassStyle），
+ * 所以可以在配置页重建后、开关切换后、拖动过程中安全地反复调用。
+ */
+function refreshPanelGlassControls() {
+  const enabled = !!globalPluginConfig.flagPanelGlass;
+  const opacity = clampSetting(
+    globalPluginConfig.panelGlassOpacity,
+    "panelGlassOpacity"
+  );
+
+  if (panelGlassRangeInput) {
+    panelGlassRangeInput.disabled = !enabled;
+    panelGlassRangeInput.value = String(opacity);
+    // 禁用时把「为什么拖不动」写在 title 上，而不是只置灰让用户自己猜
+    panelGlassRangeInput.title = enabled ? "" : "先开启面板半透明滤镜再拖动";
+  }
+  if (panelGlassValueLabel) {
+    panelGlassValueLabel.textContent = formatPanelGlassOpacity(opacity);
+  }
+  if (panelGlassResetButton) {
+    panelGlassResetButton.disabled = !enabled;
+    panelGlassResetButton.title = enabled
+      ? "恢复为默认透明度"
+      : "先开启面板半透明滤镜再重置";
+  }
+}
+
 /**
  * 由 SETTING_ENUMS + SETTING_ENUM_LABELS 生成下拉选项。
  * 面板因此不可能出现“能选、但加载校验不认”的取值。
@@ -77,6 +133,10 @@ function createSettingToggleButton(labelText, configKey, title = null) {
     saveGlobalConfigToStorage();
     if (configKey === "flagHoverReveal" && !globalPluginConfig[configKey]) {
       restoreAllBlockedVideoOverlays();
+    }
+    // 面板滤镜开关：立即作用到面板本身，并同步滑块/重置按钮的可用状态
+    if (configKey === "flagPanelGlass") {
+      onPanelGlassSettingChanged();
     }
   });
 
@@ -175,6 +235,88 @@ function createSettingSelect(labelText, configKey, title = null, options = []) {
   container.appendChild(label);
   container.appendChild(select);
   return container;
+}
+
+/**
+ * 辅助函数：为设置创建滑块行（真 `<input type="range">`）。
+ *
+ * 与 createSettingInput 一样**不在这里写死取值**：min/max/step 全部来自
+ * data/settings.js 的 SETTING_CONSTRAINTS（与加载时的 clampSetting 是同一份真源）。
+ * 事件语义按拖动体验拆开：`input` 只改内存配置并立即生效（拖动时 input 事件极密集，
+ * 每次都 GM_setValue 属于高频写存储），`change`（松手/键盘确认）才落盘。
+ * @param {string} labelText
+ * @param {string} configKey 取值必须存在于 SETTING_CONSTRAINTS。
+ * @param {string|null} [title] 说明文案（无需再写范围）。
+ * @returns {HTMLElement} 包装元素：内含「label + 滑块 + 百分比」行与「重置」按钮行。
+ */
+function createSettingRangeSlider(labelText, configKey, title = null) {
+  const { min, max, step } = SETTING_CONSTRAINTS[configKey];
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "bilibili-blacklist-panel-glass-controls";
+
+  const container = document.createElement("div");
+  container.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-setting-input-row";
+  container.title = title;
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.className = "bilibili-blacklist-panel-opacity-range";
+  input.min = `${min}`;
+  input.max = `${max}`;
+  input.step = `${step}`;
+  input.value = String(clampSetting(globalPluginConfig[configKey], configKey));
+
+  const valueLabel = document.createElement("span");
+  valueLabel.className = "bilibili-blacklist-panel-opacity-value";
+
+  input.addEventListener("input", () => {
+    globalPluginConfig[configKey] = Number(input.value);
+    onPanelGlassSettingChanged(); // 拖动中实时生效（顺带刷新百分比文本）
+  });
+  // 松手才落盘：拖动过程会连发 input，写存储留到 change
+  input.addEventListener("change", () => {
+    saveGlobalConfigToStorage();
+  });
+
+  container.appendChild(label);
+  container.appendChild(input);
+  container.appendChild(valueLabel);
+
+  // 重置按钮另起一行：滑块行保持「label + 控件 + 数值」的既有结构（同 createSettingInput）
+  const resetButton = document.createElement("button");
+  resetButton.className =
+    "bilibili-blacklist-config-btn bilibili-blacklist-panel-glass-reset";
+  resetButton.textContent = "重置";
+  resetButton.addEventListener("click", () => {
+    globalPluginConfig[configKey] = defaultGlobalPluginConfig[configKey];
+    saveGlobalConfigToStorage();
+    onPanelGlassSettingChanged();
+  });
+
+  const resetContainer = document.createElement("div");
+  resetContainer.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-panel-glass-reset-row";
+  resetContainer.appendChild(resetButton);
+
+  wrapper.appendChild(container);
+  wrapper.appendChild(resetContainer);
+
+  // 面板透明度滑块要与「面板半透明滤镜」开关联动（禁用/百分比/重置），
+  // 因此把刚创建的这批控件登记为“当前实例”，并立刻按当前配置初始化一次外观；
+  // 配置页每次重建都会重新登记，绝不会指向上一次的废弃节点。
+  if (configKey === "panelGlassOpacity") {
+    panelGlassRangeInput = input;
+    panelGlassValueLabel = valueLabel;
+    panelGlassResetButton = resetButton;
+    refreshPanelGlassControls();
+  }
+
+  return wrapper;
 }
 
 /**
@@ -398,7 +540,27 @@ function refreshConfigSettings() {
     )
   );
 
-  // ===== 分组 4：交互 =====
+  // ===== 分组 4：外观与滤镜（只影响管理面板自身的观感）=====
+  const glassTitle = document.createElement("h4");
+  glassTitle.textContent = "外观与滤镜";
+  configListElement.appendChild(glassTitle);
+
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "面板半透明滤镜",
+      "flagPanelGlass",
+      "开启后管理面板半透明、透出页面内容并叠加背景模糊；关闭则完全不透明（默认关闭）。"
+    )
+  );
+  configListElement.appendChild(
+    createSettingRangeSlider(
+      "面板透明度:",
+      "panelGlassOpacity",
+      "管理面板的不透明度：0.2（最透，再低就看不清内容）~ 1（完全不透明）。拖动中实时生效，松手后保存。"
+    )
+  );
+
+  // ===== 分组 5：交互 =====
   const interactTitle = document.createElement("h4");
   interactTitle.textContent = "交互";
   configListElement.appendChild(interactTitle);
@@ -418,7 +580,7 @@ function refreshConfigSettings() {
     )
   );
 
-  // ===== 分组 5：网络与性能 =====
+  // ===== 分组 6：网络与性能 =====
   const netTitle = document.createElement("h4");
   netTitle.textContent = "网络与性能";
   configListElement.appendChild(netTitle);

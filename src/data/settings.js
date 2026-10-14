@@ -49,6 +49,14 @@ const defaultGlobalPluginConfig = {
   processQueueInterval: 200, // 处理队列中单个卡片的延迟时间（毫秒）
   blockScanInterval: 200, // BlockCard扫描新卡片的间隔时间（毫秒）
   flagHideOnLoad: true, // 启用/禁用页面加载时自动隐藏
+  // ---- 外观与滤镜（只影响管理面板自身的观感）----
+  // 面板半透明（玻璃）滤镜：默认**关闭**。
+  // 2.0.2 及以前管理面板是常开半透明的（opacity .85 + blur 8px），2.0.3 起改为可选：
+  // 关闭 = 完全不透明（opacity 1、无背景模糊），开启 = 由 panelGlassOpacity 决定透明度并保留背景模糊。
+  // 为什么默认关闭：面板的用途是"看清并操作黑名单"，半透明会让面板文字与背后的页面内容叠在一起，
+  // 在浅色/深色主题下都可能降低可读性；毛玻璃属于观感偏好，不该当成所有人的默认外观。
+  flagPanelGlass: false,
+  panelGlassOpacity: 0.85, // 开启玻璃滤镜时的面板透明度（沿用旧版的 0.85）
   flagVertical: true, // 启用/禁用屏蔽竖屏视频
   verticalScaleThreshold: 0.7, // 竖屏视频的宽高比阈值（0-1）
   // 自动连播遇到被屏蔽视频时的处理方式（三态）：
@@ -66,6 +74,8 @@ const SETTING_CONSTRAINTS = {
   blockScanInterval: { min: 10, max: 5000, step: 10 },
   processQueueInterval: { min: 5, max: 10000, step: 5 },
   verticalScaleThreshold: { min: 0.1, max: 1, step: 0.05 },
+  // 面板透明度下限刻意设为 0.2：再低面板里的文字与列表就看不清了（不是笔误，别放宽）
+  panelGlassOpacity: { min: 0.2, max: 1, step: 0.05 },
 };
 
 /**
@@ -132,6 +142,9 @@ function normalizeGlobalConfig(raw) {
     config.verticalScaleThreshold,
     "verticalScaleThreshold"
   );
+
+  // 面板透明度：老配置没有该字段 → 由上面的默认值补齐；已存的越界/非法值在这里被 clamp
+  config.panelGlassOpacity = clampSetting(config.panelGlassOpacity, "panelGlassOpacity");
 
   // 旧版 flagKirby(布尔) 迁移为 blockDisplayMode
   if (

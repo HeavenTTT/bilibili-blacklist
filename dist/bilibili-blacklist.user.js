@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Bilibili-BlackList
 // @namespace   https://github.com/HeavenTTT/bilibili-blacklist
-// @version     2.0.2
+// @version     2.0.3
 // @author      HeavenTTT
 // @description Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match       *://*.bilibili.com/*
@@ -146,6 +146,8 @@ const defaultGlobalPluginConfig = {
   processQueueInterval: 200,
   blockScanInterval: 200,
   flagHideOnLoad: true,
+  flagPanelGlass: false,
+  panelGlassOpacity: 0.85,
   flagVertical: true,
   verticalScaleThreshold: 0.7,
   flagSkipBlockedAutoplay: "off",
@@ -156,6 +158,7 @@ const SETTING_CONSTRAINTS = {
   blockScanInterval: { min: 10, max: 5000, step: 10 },
   processQueueInterval: { min: 5, max: 10000, step: 5 },
   verticalScaleThreshold: { min: 0.1, max: 1, step: 0.05 },
+  panelGlassOpacity: { min: 0.2, max: 1, step: 0.05 },
 };
 
 const SETTING_ENUMS = {
@@ -201,6 +204,8 @@ function normalizeGlobalConfig(raw) {
     config.verticalScaleThreshold,
     "verticalScaleThreshold"
   );
+
+  config.panelGlassOpacity = clampSetting(config.panelGlassOpacity, "panelGlassOpacity");
 
   if (
     config.blockDisplayMode === undefined &&
@@ -2179,9 +2184,24 @@ GM_addStyle(`
     font-size: 15px;
     color: var(--text2, #000);
     background-color: var(--bg1, #fff);
-    opacity: 0.85;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    /* 半透明（玻璃）滤镜：默认关闭 = 完全不透明。
+     * 这两个变量由 ui/panel.js 的 applyPanelGlassStyle() 写在面板的内联样式上
+     * （内联优先级高于本规则，改值无需改样式表），这里的兜底值即「关闭」的外观。
+     * 模糊兜底用 0.01px 而不是 0px：Chromium 里 blur(0px) 与「完全不启用 backdrop-filter」
+     * 在合成层上不完全等价，用极小值避免关闭后仍有副作用。
+     * 注意：opacity 的语义是连同**全部子元素**一起变透明，作用于整个面板，
+     * 与空间页整页灰度（.bilibili-blacklist-grayscale）、卡片「未处理」遮盖
+     * （core.js 的 PENDING_FILTER_STYLE）是两回事，别混改。 */
+    opacity: var(--bilibili-blacklist-panel-opacity, 1) !important;
+    backdrop-filter: blur(var(--bilibili-blacklist-panel-blur, 0.01px)) !important;
+    -webkit-backdrop-filter: blur(var(--bilibili-blacklist-panel-blur, 0.01px)) !important;
+  }
+
+  /* 玻璃效果开关打开时由 JS 挂上的类：只是纯兜底值（实际值由 JS 内联设置），
+   * 保证即使内联值写入失败，面板也还是半透明 + 有背景模糊，而不是完全失效。 */
+  .bilibili-blacklist-panel-glass {
+    --bilibili-blacklist-panel-opacity: 0.85;
+    --bilibili-blacklist-panel-blur: 8px;
   }
 
   #bilibili-blacklist-manager-panel h3,
@@ -2530,6 +2550,34 @@ GM_addStyle(`
     padding: 6px;
     border: 1px solid #ddd;
     border-radius: 4px;
+  }
+
+  /* ===== 面板透明度滑块（配置页「外观与滤镜」分组）=====
+   * 行布局沿用 .bilibili-blacklist-panel-row（首列 label 自动 flex:1），滑块占满剩余宽度；
+   * accent-color 让原生轨道/滑块直接取 B 站粉，省掉 ::-webkit-slider-thumb / ::-moz-range-thumb
+   * 两套供应商前缀样式（本插件其它控件也都用原生外观，保持一致）。 */
+  #bilibili-blacklist-manager-panel input[type="range"].bilibili-blacklist-panel-opacity-range {
+    flex: 1;
+    min-width: 120px;
+    accent-color: #fb7299;
+    cursor: pointer;
+  }
+
+  /* 百分比数值：固定最小宽度 + 等宽数字，拖动时后面的按钮不会左右跳动 */
+  .bilibili-blacklist-panel-opacity-value {
+    flex: 0 0 auto;
+    min-width: 44px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: #606266;
+  }
+
+  /* 开关关闭时滑块与重置按钮置灰：只靠 disabled 在部分浏览器上视觉差异太弱，
+   * 这里显式压暗并给出 not-allowed 光标（title 里另写明了要先开启开关）。 */
+  #bilibili-blacklist-manager-panel input[type="range"].bilibili-blacklist-panel-opacity-range:disabled,
+  #bilibili-blacklist-manager-panel .bilibili-blacklist-panel-glass-reset:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   /* ===== 顶栏管理按钮 ===== */
@@ -3267,6 +3315,33 @@ function isBlacklistPanelCreated() {
   return false;
 }
 
+function applyPanelGlassStyle() {
+  const panel =
+    managerPanel || document.getElementById("bilibili-blacklist-manager-panel");
+  if (!panel) return;
+
+  const enabled = !!globalPluginConfig.flagPanelGlass;
+  const opacity = enabled
+    ? clampSetting(globalPluginConfig.panelGlassOpacity, "panelGlassOpacity")
+    : 1;
+
+  panel.classList.toggle("bilibili-blacklist-panel-glass", enabled);
+  setPanelGlassVar(panel, "--bilibili-blacklist-panel-opacity", String(opacity));
+  setPanelGlassVar(
+    panel,
+    "--bilibili-blacklist-panel-blur",
+    enabled ? "8px" : "0.01px"
+  );
+}
+
+function setPanelGlassVar(panel, name, value) {
+  if (typeof panel.style.setProperty === "function") {
+    panel.style.setProperty(name, value);
+  } else {
+    panel.style[name] = value;
+  }
+}
+
 function createBlacklistPanel() {
   if (isBlacklistPanelCreated()) {
     return;
@@ -3554,6 +3629,8 @@ function createBlacklistPanel() {
 
   document.body.appendChild(managerPanel);
 
+  applyPanelGlassStyle();
+
   refreshBlockCountDisplay();
 
   return managerPanel;
@@ -3582,6 +3659,42 @@ const SETTING_ENUM_LABELS = {
     verbose: "全部",
   },
 };
+
+let panelGlassRangeInput = null;
+let panelGlassValueLabel = null;
+let panelGlassResetButton = null;
+
+function formatPanelGlassOpacity(value) {
+  return Math.round(Number(value) * 100) + "%";
+}
+
+function onPanelGlassSettingChanged() {
+  applyPanelGlassStyle();
+  refreshPanelGlassControls();
+}
+
+function refreshPanelGlassControls() {
+  const enabled = !!globalPluginConfig.flagPanelGlass;
+  const opacity = clampSetting(
+    globalPluginConfig.panelGlassOpacity,
+    "panelGlassOpacity"
+  );
+
+  if (panelGlassRangeInput) {
+    panelGlassRangeInput.disabled = !enabled;
+    panelGlassRangeInput.value = String(opacity);
+    panelGlassRangeInput.title = enabled ? "" : "先开启面板半透明滤镜再拖动";
+  }
+  if (panelGlassValueLabel) {
+    panelGlassValueLabel.textContent = formatPanelGlassOpacity(opacity);
+  }
+  if (panelGlassResetButton) {
+    panelGlassResetButton.disabled = !enabled;
+    panelGlassResetButton.title = enabled
+      ? "恢复为默认透明度"
+      : "先开启面板半透明滤镜再重置";
+  }
+}
 
 function createEnumOptions(configKey) {
   const labels = SETTING_ENUM_LABELS[configKey] || {};
@@ -3616,6 +3729,9 @@ function createSettingToggleButton(labelText, configKey, title = null) {
     saveGlobalConfigToStorage();
     if (configKey === "flagHoverReveal" && !globalPluginConfig[configKey]) {
       restoreAllBlockedVideoOverlays();
+    }
+    if (configKey === "flagPanelGlass") {
+      onPanelGlassSettingChanged();
     }
   });
 
@@ -3701,6 +3817,71 @@ function createSettingSelect(labelText, configKey, title = null, options = []) {
   container.appendChild(label);
   container.appendChild(select);
   return container;
+}
+
+function createSettingRangeSlider(labelText, configKey, title = null) {
+  const { min, max, step } = SETTING_CONSTRAINTS[configKey];
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "bilibili-blacklist-panel-glass-controls";
+
+  const container = document.createElement("div");
+  container.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-setting-input-row";
+  container.title = title;
+
+  const label = document.createElement("span");
+  label.textContent = labelText;
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.className = "bilibili-blacklist-panel-opacity-range";
+  input.min = `${min}`;
+  input.max = `${max}`;
+  input.step = `${step}`;
+  input.value = String(clampSetting(globalPluginConfig[configKey], configKey));
+
+  const valueLabel = document.createElement("span");
+  valueLabel.className = "bilibili-blacklist-panel-opacity-value";
+
+  input.addEventListener("input", () => {
+    globalPluginConfig[configKey] = Number(input.value);
+    onPanelGlassSettingChanged();
+  });
+  input.addEventListener("change", () => {
+    saveGlobalConfigToStorage();
+  });
+
+  container.appendChild(label);
+  container.appendChild(input);
+  container.appendChild(valueLabel);
+
+  const resetButton = document.createElement("button");
+  resetButton.className =
+    "bilibili-blacklist-config-btn bilibili-blacklist-panel-glass-reset";
+  resetButton.textContent = "重置";
+  resetButton.addEventListener("click", () => {
+    globalPluginConfig[configKey] = defaultGlobalPluginConfig[configKey];
+    saveGlobalConfigToStorage();
+    onPanelGlassSettingChanged();
+  });
+
+  const resetContainer = document.createElement("div");
+  resetContainer.className =
+    "bilibili-blacklist-panel-row bilibili-blacklist-panel-glass-reset-row";
+  resetContainer.appendChild(resetButton);
+
+  wrapper.appendChild(container);
+  wrapper.appendChild(resetContainer);
+
+  if (configKey === "panelGlassOpacity") {
+    panelGlassRangeInput = input;
+    panelGlassValueLabel = valueLabel;
+    panelGlassResetButton = resetButton;
+    refreshPanelGlassControls();
+  }
+
+  return wrapper;
 }
 
 function refreshConfigSettings() {
@@ -3909,6 +4090,25 @@ function refreshConfigSettings() {
       "加载时立即隐藏卡片",
       "flagHideOnLoad",
       "开启：新卡片先用 CSS filter 遮盖（模糊+灰度+降透明度，不插 DOM、不改结构，减少重排闪烁），等分类/竖屏 API 判定完再统一显示——避免“先显示、后被屏蔽导致卡片重排”。关闭：卡片先显示，若稍后被判定屏蔽会产生一次重排（观感更突兀），但处理速度感更快。建议开启。"
+    )
+  );
+
+  const glassTitle = document.createElement("h4");
+  glassTitle.textContent = "外观与滤镜";
+  configListElement.appendChild(glassTitle);
+
+  configListElement.appendChild(
+    createSettingToggleButton(
+      "面板半透明滤镜",
+      "flagPanelGlass",
+      "开启后管理面板半透明、透出页面内容并叠加背景模糊；关闭则完全不透明（默认关闭）。"
+    )
+  );
+  configListElement.appendChild(
+    createSettingRangeSlider(
+      "面板透明度:",
+      "panelGlassOpacity",
+      "管理面板的不透明度：0.2（最透，再低就看不清内容）~ 1（完全不透明）。拖动中实时生效，松手后保存。"
     )
   );
 

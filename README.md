@@ -4,7 +4,7 @@
 > 覆盖主页、播放页、分类页、搜索页、排行榜、动态页与用户空间。
 > 插件大部分代码由 AI 生成，持续的 bug 反馈都很欢迎。
 
-[![Version](https://img.shields.io/badge/version-2.0.2-fb7299)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.0.3-fb7299)](./CHANGELOG.md)
 
 ---
 
@@ -118,12 +118,25 @@
 | 屏蔽类型开关 | `flagInfo` 标题/UP主名、`flagTName` 分类标签、`flagVideoTag` 视频标签、`flagVertical` 竖屏、`flagAD` 主页推荐(广告)、`flagCM` 主页视频软广 |
 | 分类数据与缓存 | `flagAlwaysFetchTName` 始终获取分类标签、分类标签缓存清除、累计统计清除、`flagSkipBlockedAutoplay` 自动连播处理 |
 | 显示方式 | `blockDisplayMode` 全局遮挡模式 + `displayModeInfo/AD/TName/VideoTag/CM/Vertical` 六项按类型覆盖、`flagHideOnLoad` 加载时立即隐藏（CSS filter 遮盖） |
+| 外观与滤镜 | `flagPanelGlass` 面板半透明滤镜（**默认关闭**）、`panelGlassOpacity` 面板透明度（0.2 ~ 1，默认 0.85） |
 | 交互 | `flagHoverReveal` 悬停后显示被遮挡视频、`hoverRevealDelaySeconds` 悬停延迟 |
 | 网络与性能 | `logLevel` 插件日志（完全关闭/关键信息/全部，**默认完全关闭**）、`flagNetworkIntercept` 网络拦截（默认关闭）、`blockScanInterval` 卡片扫描间隔、`processQueueInterval` 接口请求间隔、`verticalScaleThreshold` 竖屏比例阈值 |
 
 `flagAlwaysFetchTName`（默认开启）控制「已被 UP 主名/正则/软广命中的卡片是否仍请求接口以显示分类标签按钮」：
 开启时这些请求排在低优先级的补标签队列，分类与视频标签始终可见且不拖慢其它卡片；关闭则队列更快
 （搜索页翻页尤其明显），代价是这些卡片上看不到分类标签。
+
+### 管理面板外观（半透明滤镜）
+
+`2.0.3` 起管理面板**默认完全不透明**（`opacity: 1`、无背景模糊）。旧版常开的
+`opacity: .85` + `blur(8px)` 现在只在「插件配置 → 外观与滤镜 → **面板半透明滤镜**」
+开启后生效：开启后可用滑块在 `0.2 ~ 1` 之间调整透明度（**拖动实时生效、松手才保存**，
+旁边有百分比与「重置」按钮），并保留背景模糊；关闭时滑块与重置按钮置灰禁用。
+
+为什么默认关闭：面板要用来**看清并操作**黑名单，半透明会让面板文字与背后的页面内容叠在一起，
+浅色/深色主题下都可能影响可读性；毛玻璃属于观感偏好，需要的人自己打开即可
+（`panelGlassOpacity` 默认 `0.85`，开启后与旧版观感一致）。该透明度作用于**整个面板**
+（含全部子元素，这是 `opacity` 的语义），与卡片遮盖、空间页整页灰度无关。
 
 ### 插件日志
 

@@ -216,6 +216,55 @@ function isBlacklistPanelCreated() {
 }
 
 /**
+ * 把「面板半透明滤镜」配置应用到管理面板本身（实时生效，不重建面板、不刷新页面）。
+ *
+ * 为什么走 CSS 变量：面板外观在样式表里只写 `var(--…, 关闭时的默认值)`，
+ * 实际值由这里写在面板的内联样式上 —— 开关与滑块两处改动都只改这两个变量，
+ * 不会与样式表里的其它规则互相覆盖，也不需要为每个透明度值生成一条 CSS。
+ */
+function applyPanelGlassStyle() {
+  // managerPanel 是面板的唯一引用；油猴菜单可能在未建面板时直接调过来，这里再兜底查一次 DOM
+  const panel =
+    managerPanel || document.getElementById("bilibili-blacklist-manager-panel");
+  if (!panel) return;
+
+  const enabled = !!globalPluginConfig.flagPanelGlass;
+  // 关闭时固定 1：即使存储里还留着上次拖到的低透明度，也不该在关闭状态下生效
+  const opacity = enabled
+    ? clampSetting(globalPluginConfig.panelGlassOpacity, "panelGlassOpacity")
+    : 1;
+
+  panel.classList.toggle("bilibili-blacklist-panel-glass", enabled);
+  setPanelGlassVar(panel, "--bilibili-blacklist-panel-opacity", String(opacity));
+  // 0.01px 而不是 0px：Chromium 里 blur(0px) 与「完全不启用 backdrop-filter」在合成层上
+  // 不完全等价，用极小值确保关闭时不留任何背景模糊的合成副作用。
+  setPanelGlassVar(
+    panel,
+    "--bilibili-blacklist-panel-blur",
+    enabled ? "8px" : "0.01px"
+  );
+}
+
+/**
+ * 写一个 CSS 自定义属性（--x）。
+ *
+ * 真实浏览器必须走 CSSStyleDeclaration.setProperty：自定义属性不在命名属性集合里，
+ * `style["--x"] = v` 在严格模式下会抛 TypeError、非严格模式下被静默丢弃，两种都不能用。
+ * 但仓库的冒烟检查桩（scripts/lib/harness.js）把 style 当普通对象、没有 setProperty，
+ * 因此保留索引赋值兜底，让产物在真实浏览器与桩里都能被正确断言。
+ * @param {HTMLElement} panel
+ * @param {string} name 形如 "--bilibili-blacklist-panel-opacity"。
+ * @param {string} value
+ */
+function setPanelGlassVar(panel, name, value) {
+  if (typeof panel.style.setProperty === "function") {
+    panel.style.setProperty(name, value);
+  } else {
+    panel.style[name] = value;
+  }
+}
+
+/**
  * 创建黑名单管理面板。
  */
 function createBlacklistPanel() {
@@ -519,6 +568,9 @@ function createBlacklistPanel() {
   managerPanel.appendChild(contentContainer);
 
   document.body.appendChild(managerPanel);
+
+  // 首次创建即按配置生效：关闭（默认）→ 完全不透明，开启 → 半透明 + 背景模糊
+  applyPanelGlassStyle();
 
   // 首次创建后立即刷新计数标题，避免第一次打开面板时标题为空
   refreshBlockCountDisplay();

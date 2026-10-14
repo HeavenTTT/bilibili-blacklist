@@ -192,9 +192,24 @@ GM_addStyle(`
     font-size: 15px;
     color: var(--text2, #000);
     background-color: var(--bg1, #fff);
-    opacity: 0.85;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    /* 半透明（玻璃）滤镜：默认关闭 = 完全不透明。
+     * 这两个变量由 ui/panel.js 的 applyPanelGlassStyle() 写在面板的内联样式上
+     * （内联优先级高于本规则，改值无需改样式表），这里的兜底值即「关闭」的外观。
+     * 模糊兜底用 0.01px 而不是 0px：Chromium 里 blur(0px) 与「完全不启用 backdrop-filter」
+     * 在合成层上不完全等价，用极小值避免关闭后仍有副作用。
+     * 注意：opacity 的语义是连同**全部子元素**一起变透明，作用于整个面板，
+     * 与空间页整页灰度（.bilibili-blacklist-grayscale）、卡片「未处理」遮盖
+     * （core.js 的 PENDING_FILTER_STYLE）是两回事，别混改。 */
+    opacity: var(--bilibili-blacklist-panel-opacity, 1) !important;
+    backdrop-filter: blur(var(--bilibili-blacklist-panel-blur, 0.01px)) !important;
+    -webkit-backdrop-filter: blur(var(--bilibili-blacklist-panel-blur, 0.01px)) !important;
+  }
+
+  /* 玻璃效果开关打开时由 JS 挂上的类：只是纯兜底值（实际值由 JS 内联设置），
+   * 保证即使内联值写入失败，面板也还是半透明 + 有背景模糊，而不是完全失效。 */
+  .bilibili-blacklist-panel-glass {
+    --bilibili-blacklist-panel-opacity: 0.85;
+    --bilibili-blacklist-panel-blur: 8px;
   }
 
   #bilibili-blacklist-manager-panel h3,
@@ -543,6 +558,34 @@ GM_addStyle(`
     padding: 6px;
     border: 1px solid #ddd;
     border-radius: 4px;
+  }
+
+  /* ===== 面板透明度滑块（配置页「外观与滤镜」分组）=====
+   * 行布局沿用 .bilibili-blacklist-panel-row（首列 label 自动 flex:1），滑块占满剩余宽度；
+   * accent-color 让原生轨道/滑块直接取 B 站粉，省掉 ::-webkit-slider-thumb / ::-moz-range-thumb
+   * 两套供应商前缀样式（本插件其它控件也都用原生外观，保持一致）。 */
+  #bilibili-blacklist-manager-panel input[type="range"].bilibili-blacklist-panel-opacity-range {
+    flex: 1;
+    min-width: 120px;
+    accent-color: #fb7299;
+    cursor: pointer;
+  }
+
+  /* 百分比数值：固定最小宽度 + 等宽数字，拖动时后面的按钮不会左右跳动 */
+  .bilibili-blacklist-panel-opacity-value {
+    flex: 0 0 auto;
+    min-width: 44px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: #606266;
+  }
+
+  /* 开关关闭时滑块与重置按钮置灰：只靠 disabled 在部分浏览器上视觉差异太弱，
+   * 这里显式压暗并给出 not-allowed 光标（title 里另写明了要先开启开关）。 */
+  #bilibili-blacklist-manager-panel input[type="range"].bilibili-blacklist-panel-opacity-range:disabled,
+  #bilibili-blacklist-manager-panel .bilibili-blacklist-panel-glass-reset:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   /* ===== 顶栏管理按钮 ===== */
