@@ -91,6 +91,9 @@ function parseRegexEntry(entry) {
     const lastSlash = entry.lastIndexOf("/");
     if (lastSlash <= 0) return null;
     const pattern = entry.slice(1, lastSlash);
+    // 拒绝空 pattern：new RegExp("", "i") 会匹配任意字符串，
+    // 用户误输 "//" 就会把整页卡片全部屏蔽（添加路径只做“能否编译”校验，拦不住这种情况）。
+    if (!pattern.trim()) return null;
     let flags = entry.slice(lastSlash + 1).trim();
     if (flags.length === 0) flags = "i";
     for (let i = 0; i < flags.length; i++) {

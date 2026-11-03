@@ -49,6 +49,12 @@ const VIDEO_AD_SELECTOR_TEXT = VIDEO_AD_SELECTORS.join(", ");
 const AD_DONE_ATTR = "data-bl-ad-done";
 // 预覆盖 class，加在 <html> 上，一次性罩住/解除所有广告位。
 const AD_PENDING_CLASS = "bilibili-blacklist-ad-pending";
+// 主页/搜索页/排行榜广告的预覆盖 class。
+//
+// 为什么主页广告也需要预覆盖：它们由 observer 合并调度，要等 blockScanInterval（默认 200ms）
+// 才被处理；这期间新插入的广告位会先以正常样式被绘制出来 → 肉眼看到“亮一下再被遮”。
+// 在瀑布流里尤其明显（用户反馈的闪烁），所以把同一套 CSS 预覆盖扩展到主页广告选择器。
+const MAIN_AD_PENDING_CLASS = "bilibili-blacklist-main-ad-pending";
 // 切视频后预覆盖的最长保留时间：新页面可能根本没有广告位插入，
 // 需要兜底解除，避免 class 长期挂着。
 const VIDEO_AD_PENDING_MAX_MS = 1500;
@@ -62,6 +68,12 @@ let videoAdPendingReleaseTimer = null; // 切视频后预覆盖的兜底解除�
 GM_addStyle(`
   ${VIDEO_AD_SELECTORS.map(
     (selector) => `html.${AD_PENDING_CLASS} ${selector}:not([${AD_DONE_ATTR}])`
+  ).join(",\n  ")} {
+    filter: ${PENDING_FILTER_STYLE} !important;
+    pointer-events: none !important;
+  }
+  ${MAIN_AD_SELECTORS.map(
+    (selector) => `html.${MAIN_AD_PENDING_CLASS} ${selector}:not([${AD_DONE_ATTR}])`
   ).join(",\n  ")} {
     filter: ${PENDING_FILTER_STYLE} !important;
     pointer-events: none !important;
@@ -122,6 +134,45 @@ function clearVideoPageAdsPending() {
     videoAdPendingReleaseTimer = null;
   }
   document.documentElement.classList.remove(AD_PENDING_CLASS);
+}
+
+/**
+ * 给主页 / 搜索页 / 排行榜的广告位加“未判定”预覆盖。
+ *
+ * 这几页没有播放页那套“5s 静默 + header 就绪”的时序，广告位是随瀑布流动态插入的：
+ * 从插入到 blockMainPageAds 判定之间有最长 ~200ms 的合并调度窗口，不预覆盖就会看到
+ * “广告卡片先亮一下、再被遮上”的闪烁。CSS 只罩 `:not([data-bl-ad-done])` 的广告位，
+ * 判定提交时 resolveAdElement 会打上该标记，罩子随即失效。
+ */
+function markMainPageAdsPending() {
+  if (!globalPluginConfig.flagAD) return;
+  if (!globalPluginConfig.flagHideOnLoad) return;
+  if (isShowAllVideos) return;
+  if (!(isCurrentPageMain() || isCurrentPageSearch() || isCurrentPageRanking())) return;
+  document.documentElement.classList.add(MAIN_AD_PENDING_CLASS);
+}
+
+/**
+ * 同步「广告预覆盖」类（初始化 / 切「取消屏蔽」 / 改配置后调用）。
+ * 与 core.js 的 syncPendingCoverClass 同一批时机调用，保证卡片与广告的预覆盖始终一致。
+ */
+function syncAdsPendingClass() {
+  const root = document.documentElement;
+  if (!root) return;
+  const baseOn =
+    !!globalPluginConfig.flagAD &&
+    !!globalPluginConfig.flagHideOnLoad &&
+    !isShowAllVideos;
+  if (baseOn && isCurrentPageVideo()) root.classList.add(AD_PENDING_CLASS);
+  else root.classList.remove(AD_PENDING_CLASS);
+  if (
+    baseOn &&
+    (isCurrentPageMain() || isCurrentPageSearch() || isCurrentPageRanking())
+  ) {
+    root.classList.add(MAIN_AD_PENDING_CLASS);
+  } else {
+    root.classList.remove(MAIN_AD_PENDING_CLASS);
+  }
 }
 
 /**
@@ -213,14 +264,20 @@ function onVideoSwitchedAds() {
 
 /**
  * 屏蔽主页上的广告。
+ *
+ * 走与播放页相同的 resolveAdElement：先打 AD_DONE_ATTR（让 CSS 预覆盖立刻失效），
+ * 再按显示模式遮蔽。这样“预覆盖 → 正式遮蔽”之间不会出现一帧空档（闪烁）。
  */
 function blockMainPageAds() {
   if (!globalPluginConfig.flagAD) return; // 如果广告屏蔽未启用，则直接返回
   document.querySelectorAll(MAIN_AD_SELECTOR_TEXT).forEach((adCard) => {
-    hideVideoCard(adCard, "ad"); // 隐藏广告卡片
+    resolveAdElement(adCard); // 已判定过的广告位会被 AD_DONE_ATTR 跳过
   });
+  refreshBlockCountDisplay();
 }
 
 // 求值期立即预覆盖：比放进 initializeScript() 更早，少一段广告裸露窗口。
 // 此时 storage.js / core.js / pages.js 均已求值，函数声明也已提升，调用安全。
 markVideoPageAdsPending();
+// 主页/搜索页/排行榜的广告同样需要“动画开始前”就罩住，否则瀑布流里会闪一下。
+markMainPageAdsPending();

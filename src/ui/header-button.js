@@ -41,10 +41,20 @@ let headerButtonRetryScheduled = false;
 function scheduleHeaderButtonRetry() {
   if (headerButtonRetryScheduled) return;
   headerButtonRetryScheduled = true;
-  waitForContainer(".right-entry__main, .right-entry", () => {
-    headerButtonRetryScheduled = false;
-    addBlacklistManagerButton();
-  }, 250, 15000);
+  waitForContainer(
+    ".right-entry__main, .right-entry",
+    () => {
+      headerButtonRetryScheduled = false;
+      addBlacklistManagerButton();
+    },
+    250,
+    15000,
+    () => {
+      // 超时也必须复位：否则标志永远停在 true，之后所有重试全部早退，
+      // 顶栏按钮只能等观察器兜底重挂（而它可能在页面静止时等不到 mutation）。
+      headerButtonRetryScheduled = false;
+    }
+  );
 }
 
 /**

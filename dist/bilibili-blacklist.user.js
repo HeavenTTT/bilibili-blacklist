@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Bilibili-BlackList
 // @namespace   https://github.com/HeavenTTT/bilibili-blacklist
-// @version     2.0.3
+// @version     2.0.4
 // @author      HeavenTTT
 // @description Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match       *://*.bilibili.com/*
@@ -208,7 +208,7 @@ function normalizeGlobalConfig(raw) {
   config.panelGlassOpacity = clampSetting(config.panelGlassOpacity, "panelGlassOpacity");
 
   if (
-    config.blockDisplayMode === undefined &&
+    !Object.prototype.hasOwnProperty.call(raw || {}, "blockDisplayMode") &&
     typeof config.flagKirby === "boolean"
   ) {
     config.blockDisplayMode = config.flagKirby ? "kirby" : "hide";
@@ -287,6 +287,7 @@ function parseRegexEntry(entry) {
     const lastSlash = entry.lastIndexOf("/");
     if (lastSlash <= 0) return null;
     const pattern = entry.slice(1, lastSlash);
+    if (!pattern.trim()) return null;
     let flags = entry.slice(lastSlash + 1).trim();
     if (flags.length === 0) flags = "i";
     for (let i = 0; i < flags.length; i++) {
@@ -640,9 +641,37 @@ function clearPendingFilter(cardElement) {
 }
 
 function markAllVideoCardsPending() {
+  if (!globalPluginConfig.flagHideOnLoad || isShowAllVideos) return;
   const cards = queryAllVideoCards();
   if (!cards) return;
   cards.forEach((card) => applyPendingFilter(card));
+}
+
+const PENDING_COVER_CLASS = "bilibili-blacklist-pending-cover";
+const PENDING_DONE_ATTR = "data-bl-card-done";
+
+function shouldCoverPendingCards() {
+  const root = document.documentElement;
+  if (!root) return false;
+  if ((root.className || "").indexOf("bilibili-blacklist-page-") === -1) return false;
+  return !!globalPluginConfig.flagHideOnLoad && !isShowAllVideos;
+}
+
+function syncPendingCoverClass() {
+  const root = document.documentElement;
+  if (!root) return;
+  if (shouldCoverPendingCards()) root.classList.add(PENDING_COVER_CLASS);
+  else root.classList.remove(PENDING_COVER_CLASS);
+  if (typeof syncAdsPendingClass === "function") syncAdsPendingClass();
+}
+
+function markCardPendingDone(cardElement) {
+  if (!cardElement) return;
+  if (cardElement.setAttribute) cardElement.setAttribute(PENDING_DONE_ATTR, "1");
+  const real = getRealVideoCardElement(cardElement);
+  if (real && real !== cardElement && real.setAttribute) {
+    real.setAttribute(PENDING_DONE_ATTR, "1");
+  }
 }
 
 function hideVideoCard(cardElement, type = "none", reasonValue = null) {
@@ -707,24 +736,7 @@ function cancelCardBlockReason(card, type, value) {
     return;
   }
 
-  clearPendingFilter(card);
-  const realCard = getRealVideoCardElement(card);
-  unmarkBlockedCard(realCard);
-  removeBlockReason(card);
-  removeKirbyOverlay(card);
-  if (realCard) {
-    realCard.style.display = "block";
-    realCard.style.visibility = "visible";
-  }
-  if (globalPluginConfig.flagHideOnLoad && !isShowAllVideos) {
-    applyPendingFilter(card);
-  }
-  processedVideoCards.delete(realCard || card);
-  videoCardProcessQueue.add(card);
-  if (!isVideoCardQueueProcessing) {
-    processVideoCardQueue();
-  }
-  refreshBlockCountDisplay();
+  rejudgeAllVideoCards();
 }
 
 function setBlockReasonOnCard(cardElement, type, reasonValue = null) {
@@ -753,7 +765,7 @@ function setBlockReasonOnCard(cardElement, type, reasonValue = null) {
   reasonElement.textContent = buildBlockReasonText(type, reasonValue);
   reasonElement.classList.toggle("is-cancellable", cancellable);
   reasonElement.title = cancellable
-    ? "点击取消本卡屏蔽(仅当前视频,不影响黑名单规则)"
+    ? "点击取消屏蔽：从黑名单删除该规则，并重判本页卡片"
     : "";
   if (cancellable) {
     reasonElement.dataset.blockType = type;
@@ -813,7 +825,53 @@ function resetCardDecorations(cardElement) {
     unmarkBlockedCard(realCard);
     realCard.style.display = "";
     realCard.style.visibility = "";
+    realCard.removeAttribute(PENDING_DONE_ATTR);
+    cardElement.removeAttribute(PENDING_DONE_ATTR);
   }
+}
+
+function rejudgeAllVideoCards() {
+  if (isShowAllVideos) return;
+  const cards = queryAllVideoCards();
+  if (!cards) return;
+  processedVideoCards = new WeakSet();
+  queuedRealCards = new WeakSet();
+  tnameRetriedCards = new WeakSet();
+  videoTagRetriedCards = new WeakSet();
+  cards.forEach((card) => {
+    resetCardDecorations(card);
+    videoCardProcessQueue.add(card);
+  });
+  lastBlockScanExecutionTime = 0;
+  if (!isVideoCardQueueProcessing) {
+    processVideoCardQueue();
+  }
+  refreshBlockCountDisplay();
+}
+
+const CONFIG_KEYS_NEEDING_REJUDGE = [
+  "flagInfo",
+  "flagAD",
+  "flagCM",
+  "flagTName",
+  "flagVideoTag",
+  "flagVertical",
+  "flagAlwaysFetchTName",
+  "flagHideOnLoad",
+  "blockDisplayMode",
+  "displayModeInfo",
+  "displayModeAD",
+  "displayModeTName",
+  "displayModeVideoTag",
+  "displayModeCM",
+  "displayModeVertical",
+];
+
+function onGlobalConfigSaved(configKey) {
+  if (CONFIG_KEYS_NEEDING_REJUDGE.indexOf(configKey) !== -1) {
+    rejudgeAllVideoCards();
+  }
+  syncPendingCoverClass();
 }
 
 function getRealVideoCardElement(cardElement) {
@@ -890,6 +948,13 @@ function scanAndBlockVideoCards() {
 
     videoCards.forEach(processCard);
 
+    videoCards.forEach((card) => {
+      const real = getRealVideoCardElement(card);
+      if (blockedVideoCards.has(real) || processedVideoCards.has(real)) {
+        markCardPendingDone(card);
+      }
+    });
+
     if (videoCardProcessQueue.size > 0 && !isVideoCardQueueProcessing) {
       processVideoCardQueue();
     }
@@ -931,6 +996,7 @@ function fixMainPageLayout() {
 
 function toggleShowAllBlockedVideos() {
   isShowAllVideos = !isShowAllVideos;
+  syncPendingCoverClass();
   pruneDisconnectedBlockedCards();
   blockedVideoCards.forEach((card) => {
     const overlay = card.querySelector("#bilibili-blacklist-kirby");
@@ -1052,7 +1118,7 @@ function addToExactBlacklist(upName, cardElement = null) {
     if (findExactBlacklistIndex(upName) === -1) {
       exactMatchBlacklist.push(upName);
       saveBlacklistsToStorage();
-      refreshAllPanelTabs();
+      refreshExactMatchList();
       if (cardElement) {
         hideVideoCard(cardElement, "info");
       }
@@ -1070,6 +1136,7 @@ function removeFromExactBlacklist(upName) {
       exactMatchBlacklist.splice(index, 1);
       saveBlacklistsToStorage();
       refreshExactMatchList();
+      rejudgeAllVideoCards();
     }
   } catch (e) {
     console.error("[🫥BlackList] 移除黑名单出错:", e);
@@ -1084,7 +1151,7 @@ function addToTagNameBlacklist(tagName, cardElement = null) {
     if (!tagNameBlacklist.includes(tagName)) {
       tagNameBlacklist.push(tagName);
       saveBlacklistsToStorage();
-      refreshAllPanelTabs();
+      refreshTagNameList();
       if (cardElement) {
         hideVideoCard(cardElement, "tname");
       }
@@ -1102,6 +1169,7 @@ function removeFromTagNameBlacklist(tagName) {
       tagNameBlacklist.splice(index, 1);
       saveBlacklistsToStorage();
       refreshTagNameList();
+      rejudgeAllVideoCards();
     }
   } catch (e) {
     console.error("[🫥BlackList] 移除标签黑名单出错:", e);
@@ -1116,7 +1184,7 @@ function addToVideoTagBlacklist(tagName, cardElement = null) {
     }
     videoTagBlacklist.push(normalizedTagName);
     saveBlacklistsToStorage();
-    refreshAllPanelTabs();
+    refreshVideoTagList();
     if (cardElement) {
       hideVideoCard(cardElement, "videoTag", normalizedTagName);
     }
@@ -1133,6 +1201,7 @@ function removeFromVideoTagBlacklist(tagName) {
     videoTagBlacklist.splice(index, 1);
     saveBlacklistsToStorage();
     refreshVideoTagList();
+    rejudgeAllVideoCards();
   } catch (e) {
     console.error("[🫥BlackList] 移除视频标签黑名单出错:", e);
   }
@@ -1268,10 +1337,10 @@ function flushBlockStats() {
     store.total[key] = (store.total[key] || 0) + delta;
   });
   if (!changed) return false;
-  blockStatsSnapshot = current;
   pruneBlockStatsDays(store);
   try {
     GM_setValue(BLOCK_STATS_STORAGE_KEY, store);
+    blockStatsSnapshot = current;
   } catch (e) {
     console.error("[🫥BlackList] 统计落盘失败:", e);
   }
@@ -1485,20 +1554,38 @@ function getLinkBvId(link) {
 
 const bvApiDataCache = new Map();
 const BV_API_CACHE_TTL = 10 * 60 * 1000;
+const BV_API_CACHE_MAX = 400;
+const BV_API_NEGATIVE_TTL_MS = 60 * 1000;
 const BV_API_TIMEOUT_MS = 5000;
 const BV_API_MIN_INTERVAL_MS = 50;
 let lastBvApiRequestAt = 0;
-async function bvApiThrottle() {
-  const now = Date.now();
-  const wait = lastBvApiRequestAt + BV_API_MIN_INTERVAL_MS - now;
-  if (wait > 0) await sleep(wait);
-  lastBvApiRequestAt = Date.now();
+let biliApiThrottleChain = Promise.resolve();
+function bvApiThrottle() {
+  const slot = biliApiThrottleChain.then(async () => {
+    const delay = lastBvApiRequestAt + BV_API_MIN_INTERVAL_MS - Date.now();
+    if (delay > 0) await sleep(delay);
+    lastBvApiRequestAt = Date.now();
+  });
+  biliApiThrottleChain = slot.catch(() => {});
+  return slot;
 }
 
 function getCachedEntry(cache, bvid) {
   if (!bvid) return null;
   const cached = cache.get(bvid);
-  return cached && Date.now() < cached.expire ? cached : null;
+  if (!cached) return null;
+  if (Date.now() < cached.expire) return cached;
+  cache.delete(bvid);
+  return null;
+}
+
+function setCachedEntry(cache, bvid, entry) {
+  if (!bvid) return;
+  if (!cache.has(bvid) && cache.size >= BV_API_CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(bvid, entry);
 }
 
 function hasFreshBvApiCache(bvid) {
@@ -1543,12 +1630,16 @@ async function getBilibiliVideoApiData(bvid) {
     "[🫥BlackList] API 请求失败:"
   );
   if (json && json.code === 0) {
-    bvApiDataCache.set(bvid, {
+    setCachedEntry(bvApiDataCache, bvid, {
       data: json.data,
       expire: Date.now() + BV_API_CACHE_TTL,
     });
     return json.data;
   }
+  setCachedEntry(bvApiDataCache, bvid, {
+    data: null,
+    expire: Date.now() + BV_API_NEGATIVE_TTL_MS,
+  });
   return null;
 }
 
@@ -1575,12 +1666,16 @@ async function getBilibiliVideoTagApiData(bvid) {
   );
   if (json && json.code === 0 && Array.isArray(json.data)) {
     const data = { videoTags: json.data };
-    bvTagApiDataCache.set(bvid, {
+    setCachedEntry(bvTagApiDataCache, bvid, {
       data,
       expire: Date.now() + BV_API_CACHE_TTL,
     });
     return data;
   }
+  setCachedEntry(bvTagApiDataCache, bvid, {
+    data: null,
+    expire: Date.now() + BV_API_NEGATIVE_TTL_MS,
+  });
   return null;
 }
 
@@ -1777,6 +1872,9 @@ function processVideoCardQueue() {
       isVideoCardQueueProcessing = false;
       refreshBlockCountDisplay();
       updateTNameListFromFeed();
+      if (videoCardProcessQueue.size > 0 || tnameDecorateQueue.size > 0) {
+        setTimeout(processVideoCardQueue, 0);
+      }
     });
 }
 
@@ -1784,6 +1882,7 @@ function releaseCurrentQueuedCard() {
   const card = currentQueuedCard;
   currentQueuedCard = null;
   if (!card) return;
+  markCardPendingDone(card);
   const realCard = getRealVideoCardElement(card) || card;
   clearPendingFilter(card);
   unmarkBlockedCard(realCard);
@@ -1973,6 +2072,7 @@ async function runVideoCardQueueLoop() {
       tnameDecorateQueue.add(card);
     }
 
+    markCardPendingDone(card);
     if (shouldHide) {
       clearPendingFilter(card);
       hideVideoCard(card, blockType, blockReasonValue);
@@ -2656,12 +2756,43 @@ GM_addStyle(`
   }
 
   /* ===== 灰度效果：空间页「已屏蔽 UP」整页黑白 =====
-   * 由 pages.js 的 addBlockButtonToUserSpace 按屏蔽状态给 document.body 增删。
-   * 2.0.1 曾移除过这条规则（理由是 favlist/合集页里与该 UP 无关的视频也被灰掉），
-   * 现已按需求恢复；不要因为同样的理由再次删除 —— 那会让空间页完全没有整体视觉提示。
-   * 若要去掉副作用，请改成全屏 backdrop-filter 遮罩层，而不是删掉这条规则。 */
-  .bilibili-blacklist-grayscale {
-    filter: grayscale(95%);
+   * 实现方式：pages.js 的 setUserSpaceGrayscale 在 body 上插一层固定定位的遮罩，
+   * 对该遮罩的**背景**做 backdrop-filter: grayscale(95%)，而不是给 document.body 加 filter。
+   *
+   * 为什么不再用 body 上的 filter（2.0.3 及以前的做法）：
+   *   1) filter 会作用于全部后代 —— 插件自己的管理面板也是 body 的子元素，会被一起灰掉；
+   *   2) 祖先的 filter 会给 position:fixed 的后代建立包含块，B 站吸顶栏因此变成随页面滚动，
+   *      管理面板的定位基准也从视口变成 body。
+   * 遮罩方案没有这两个副作用：面板正常显示/定位，页面视觉仍是“整体黑白”。
+   * 2.0.1 曾整体移除灰度（理由是 favlist/合集页里与该 UP 无关的视频也被灰掉），2.0.2 恢复；
+   * 这次改的是实现方式，**不要再退回 body filter**，也不要把这个整体视觉提示删掉。
+   * pointer-events: none 保证遮罩不吃鼠标事件；z-index 低于管理面板（99999）。 */
+  .bilibili-blacklist-grayscale-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99990;
+    pointer-events: none;
+    backdrop-filter: grayscale(95%);
+    -webkit-backdrop-filter: grayscale(95%);
+  }
+  /* ===== 卡片“未处理”CSS 预覆盖 =====
+   * 为什么需要：JS 给新卡片加 pending filter 要等 MutationObserver 回调或下一轮扫描，
+   * 而瀑布流卡片是浏览器分批插入并立即绘制的 —— 只要有一帧没被罩住，肉眼就是“闪烁”。
+   * 这里按页面类型在 <html> 上加类，用 CSS 先罩住“还没判定完”的卡片
+   * （:not([data-bl-card-done])），判定提交时 JS 再给该卡打标记把罩子摘掉。
+   * filter 参数与 core.js 的 PENDING_FILTER_STYLE 保持一致（本文件在其之前求值，
+   * 不能引用该常量，只能硬编码同一串：改一处必须同步改另一处）。
+   * 页面类型类限定当前页的卡片选择器，避免 .feed-card 与 .bili-video-card 嵌套时被双重模糊。 */
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-main .bili-video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-search .bili-video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-video .video-page-card-small:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-category .feed-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .bili-video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .rank-item:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .rank-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-dynamic .bili-dyn-list__item:not([data-bl-card-done]) {
+    filter: blur(8px) grayscale(0.5) opacity(0.4) !important;
   }
 `);
 
@@ -2976,10 +3107,18 @@ let headerButtonRetryScheduled = false;
 function scheduleHeaderButtonRetry() {
   if (headerButtonRetryScheduled) return;
   headerButtonRetryScheduled = true;
-  waitForContainer(".right-entry__main, .right-entry", () => {
-    headerButtonRetryScheduled = false;
-    addBlacklistManagerButton();
-  }, 250, 15000);
+  waitForContainer(
+    ".right-entry__main, .right-entry",
+    () => {
+      headerButtonRetryScheduled = false;
+      addBlacklistManagerButton();
+    },
+    250,
+    15000,
+    () => {
+      headerButtonRetryScheduled = false;
+    }
+  );
 }
 
 function addBlacklistManagerButton() {
@@ -3265,6 +3404,7 @@ function refreshRegexMatchList() {
       saveBlacklistsToStorage();
       invalidateRegexCache();
       refreshRegexMatchList();
+      rejudgeAllVideoCards();
     },
   });
   if (listElement) regexMatchListElement = listElement;
@@ -3727,6 +3867,7 @@ function createSettingToggleButton(labelText, configKey, title = null) {
     globalPluginConfig[configKey] = !globalPluginConfig[configKey];
     refreshButtonAppearance();
     saveGlobalConfigToStorage();
+    onGlobalConfigSaved(configKey);
     if (configKey === "flagHoverReveal" && !globalPluginConfig[configKey]) {
       restoreAllBlockedVideoOverlays();
     }
@@ -3777,6 +3918,7 @@ function createSettingInput(labelText, configKey, title = null) {
     if (isInRange) {
       globalPluginConfig[configKey] = val;
       saveGlobalConfigToStorage();
+      onGlobalConfigSaved(configKey);
     } else {
       alert(`请输入${rangeText}之间的有效数字！`);
     }
@@ -3802,6 +3944,7 @@ function createSettingSelect(labelText, configKey, title = null, options = []) {
   select.addEventListener("change", () => {
     globalPluginConfig[configKey] = select.value;
     saveGlobalConfigToStorage();
+    onGlobalConfigSaved(configKey);
   });
 
   options.forEach((opt) => {
@@ -3850,6 +3993,7 @@ function createSettingRangeSlider(labelText, configKey, title = null) {
   });
   input.addEventListener("change", () => {
     saveGlobalConfigToStorage();
+    onGlobalConfigSaved(configKey);
   });
 
   container.appendChild(label);
@@ -4280,7 +4424,13 @@ const contentObserver = new MutationObserver((mutations) => {
   scheduleHeaderButtonRefresh();
 });
 
-function waitForContainer(selector, onFound, intervalMs = 250, timeoutMs = 15000) {
+function waitForContainer(
+  selector,
+  onFound,
+  intervalMs = 250,
+  timeoutMs = 15000,
+  onTimeout = null
+) {
   const find = () => {
     const el = document.getElementById(selector) || document.querySelector(selector);
     if (el) {
@@ -4290,7 +4440,10 @@ function waitForContainer(selector, onFound, intervalMs = 250, timeoutMs = 15000
     }
   };
   const timer = setInterval(find, intervalMs);
-  const timeout = setTimeout(() => clearInterval(timer), timeoutMs);
+  const timeout = setTimeout(() => {
+    clearInterval(timer);
+    if (typeof onTimeout === "function") onTimeout();
+  }, timeoutMs);
   find();
 }
 
@@ -4398,6 +4551,21 @@ function initializeScript() {
   } else {
     return;
   }
+
+  const pageKind = getCurrentPageKind();
+  if (pageKind) {
+    document.documentElement.classList.add("bilibili-blacklist-page-" + pageKind);
+  }
+  syncPendingCoverClass();
+
+  if (!isCurrentPageVideo() && !isCurrentUserSpace()) {
+    setInterval(() => {
+      ensureObserverAttached();
+      lastBlockScanExecutionTime = 0;
+      scanAndBlockVideoCards();
+    }, 8000);
+  }
+
   createBlacklistPanel();
   if (!isCurrentPageVideo()) {
     addBlacklistManagerButton();
@@ -4684,6 +4852,18 @@ function initializeUserSpace() {
   }
 }
 
+let userSpaceGrayscaleOverlay = null;
+
+function setUserSpaceGrayscale(enabled) {
+  if (!userSpaceGrayscaleOverlay) {
+    userSpaceGrayscaleOverlay = document.createElement("div");
+    userSpaceGrayscaleOverlay.id = "bilibili-blacklist-grayscale-overlay";
+    userSpaceGrayscaleOverlay.className = "bilibili-blacklist-grayscale-overlay";
+    document.body.appendChild(userSpaceGrayscaleOverlay);
+  }
+  userSpaceGrayscaleOverlay.style.display = enabled ? "block" : "none";
+}
+
 function addBlockButtonToUserSpace(upNameElement) {
   const upName = upNameElement.textContent.trim();
   if (upNameElement.querySelector(".bilibili-blacklist-up-block-btn")) {
@@ -4703,13 +4883,13 @@ function addBlockButtonToUserSpace(upNameElement) {
       button.style.backgroundColor = "#dddddd";
       button.style.border = "1px solid #ccc";
       upNameElement.style.textDecoration = "line-through";
-      document.body.classList.add("bilibili-blacklist-grayscale");
+      setUserSpaceGrayscale(true);
     } else {
       button.textContent = "屏蔽";
       button.style.backgroundColor = "#fb7299";
       button.style.border = "1px solid #fb7299";
       upNameElement.style.textDecoration = "none";
-      document.body.classList.remove("bilibili-blacklist-grayscale");
+      setUserSpaceGrayscale(false);
     }
   };
 
@@ -4728,6 +4908,26 @@ function addBlockButtonToUserSpace(upNameElement) {
 
   upNameElement.appendChild(button);
 }
+
+function getCurrentPageKind() {
+  if (isCurrentPageMain()) return "main";
+  if (isCurrentPageSearch()) return "search";
+  if (isCurrentPageVideo()) return "video";
+  if (isCurrentPageCategory()) return "category";
+  if (isCurrentPageRanking()) return "ranking";
+  if (isCurrentPageDynamic()) return "dynamic";
+  return null;
+}
+
+(function applyPageKindClassEarly() {
+  try {
+    const kind = getCurrentPageKind();
+    if (kind) {
+      document.documentElement.classList.add("bilibili-blacklist-page-" + kind);
+    }
+  } catch (e) {
+  }
+})();
 
 
 
@@ -4754,6 +4954,7 @@ const VIDEO_AD_SELECTOR_TEXT = VIDEO_AD_SELECTORS.join(", ");
 
 const AD_DONE_ATTR = "data-bl-ad-done";
 const AD_PENDING_CLASS = "bilibili-blacklist-ad-pending";
+const MAIN_AD_PENDING_CLASS = "bilibili-blacklist-main-ad-pending";
 const VIDEO_AD_PENDING_MAX_MS = 1500;
 
 let videoAdProcessScheduled = false;
@@ -4763,6 +4964,12 @@ let videoAdPendingReleaseTimer = null;
 GM_addStyle(`
   ${VIDEO_AD_SELECTORS.map(
     (selector) => `html.${AD_PENDING_CLASS} ${selector}:not([${AD_DONE_ATTR}])`
+  ).join(",\n  ")} {
+    filter: ${PENDING_FILTER_STYLE} !important;
+    pointer-events: none !important;
+  }
+  ${MAIN_AD_SELECTORS.map(
+    (selector) => `html.${MAIN_AD_PENDING_CLASS} ${selector}:not([${AD_DONE_ATTR}])`
   ).join(",\n  ")} {
     filter: ${PENDING_FILTER_STYLE} !important;
     pointer-events: none !important;
@@ -4803,6 +5010,33 @@ function clearVideoPageAdsPending() {
     videoAdPendingReleaseTimer = null;
   }
   document.documentElement.classList.remove(AD_PENDING_CLASS);
+}
+
+function markMainPageAdsPending() {
+  if (!globalPluginConfig.flagAD) return;
+  if (!globalPluginConfig.flagHideOnLoad) return;
+  if (isShowAllVideos) return;
+  if (!(isCurrentPageMain() || isCurrentPageSearch() || isCurrentPageRanking())) return;
+  document.documentElement.classList.add(MAIN_AD_PENDING_CLASS);
+}
+
+function syncAdsPendingClass() {
+  const root = document.documentElement;
+  if (!root) return;
+  const baseOn =
+    !!globalPluginConfig.flagAD &&
+    !!globalPluginConfig.flagHideOnLoad &&
+    !isShowAllVideos;
+  if (baseOn && isCurrentPageVideo()) root.classList.add(AD_PENDING_CLASS);
+  else root.classList.remove(AD_PENDING_CLASS);
+  if (
+    baseOn &&
+    (isCurrentPageMain() || isCurrentPageSearch() || isCurrentPageRanking())
+  ) {
+    root.classList.add(MAIN_AD_PENDING_CLASS);
+  } else {
+    root.classList.remove(MAIN_AD_PENDING_CLASS);
+  }
 }
 
 function resolveAdElement(adElement) {
@@ -4861,11 +5095,13 @@ function onVideoSwitchedAds() {
 function blockMainPageAds() {
   if (!globalPluginConfig.flagAD) return;
   document.querySelectorAll(MAIN_AD_SELECTOR_TEXT).forEach((adCard) => {
-    hideVideoCard(adCard, "ad");
+    resolveAdElement(adCard);
   });
+  refreshBlockCountDisplay();
 }
 
 markVideoPageAdsPending();
+markMainPageAdsPending();
 
 
 let autoplayWatchTimer = null;
@@ -5462,7 +5698,9 @@ function getStreamBlockReason(item) {
 
   var upName = (item.owner && item.owner.name) || "";
   var title = item.title || "";
-  if ((upName || title) && isBlacklisted(upName, title)) return "info";
+  if (globalPluginConfig.flagInfo && (upName || title) && isBlacklisted(upName, title)) {
+    return "info";
+  }
 
   var bvid = item.bvid || getLinkBvId(item.uri || "");
   if (!bvid) return null;
@@ -5572,15 +5810,26 @@ function installNetworkInterceptors() {
     }
     return originFetch(input, init).then(function (res) {
       if (!NET_INTERCEPT.rewrite || !url || !netUrlMatches(url)) return res;
-      return res.clone().text().then(function (text) {
-        var rewritten = rewriteRecommendation(url, text);
-        if (rewritten === text) return res;
-        return new Response(rewritten, {
-          status: res.status,
-          statusText: res.statusText,
-          headers: res.headers
-        });
-      });
+      var textPromise;
+      try {
+        textPromise = res.clone().text();
+      } catch (e) {
+        return res;
+      }
+      return textPromise.then(
+        function (text) {
+          var rewritten = rewriteRecommendation(url, text);
+          if (rewritten === text) return res;
+          return new Response(rewritten, {
+            status: res.status,
+            statusText: res.statusText,
+            headers: res.headers
+          });
+        },
+        function () {
+          return res;
+        }
+      );
     });
   };
 }

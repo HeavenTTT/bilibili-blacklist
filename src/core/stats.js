@@ -138,10 +138,13 @@ function flushBlockStats() {
     store.total[key] = (store.total[key] || 0) + delta;
   });
   if (!changed) return false;
-  blockStatsSnapshot = current;
   pruneBlockStatsDays(store);
+  // 先把快照推进放在**写盘成功之后**：写失败时快照保持旧值，
+  // 这批增量会在下一次 flush 时重算并重试，不会永久丢失。
+  // （旧实现先推进快照再写盘，GM_setValue 抛错时增量在内存里已被视为“已保存”。）
   try {
     GM_setValue(BLOCK_STATS_STORAGE_KEY, store);
+    blockStatsSnapshot = current;
   } catch (e) {
     console.error("[🫥BlackList] 统计落盘失败:", e);
   }

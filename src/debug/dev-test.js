@@ -432,6 +432,197 @@ if (typeof __DSH_DEV__ !== "undefined" && __DSH_DEV__) {
 
   __applyUrlFlags();
 
+  /* ===== dev 专用：瀑布流“闪烁”探针（URL 带 #bl-flash-probe 打开）=====
+   * 观察新插入的卡片/广告位是否在**第一帧**就被遮盖：若既没有内联 filter、也没有
+   * CSS 预覆盖（未打“已判定”标记）、也不是隐藏状态，说明它会被先绘制出来 → 闪烁。
+   * 命中就打印 [FLASH][dev]（console.warn，默认级别可见）。只用于开发验证。 */
+  (function __installFlashProbeIfRequested() {
+    if ((location.hash || "").indexOf("bl-flash-probe") === -1) return;
+    const PROBE_SELECTORS = [
+      ".bili-video-card",
+      ".video-page-card-small",
+      ".feed-card",
+      ".bili-dyn-list__item",
+      ".floor-single-card",
+      ".bili-live-card",
+      ".video-card-ad-small",
+      ".slide-ad-exp",
+      ".ad-floor-exp",
+    ].join(", ");
+    const startAt = performance.now();
+    let flagged = 0;
+    const isCovered = (el) => {
+      if (!el || !el.style) return true;
+      if (((el.style.filter || "") + "").indexOf("grayscale") !== -1) return true;
+      if (el.hasAttribute("data-bl-card-done") || el.hasAttribute("data-bl-ad-done")) {
+        return true;
+      }
+      let cs = null;
+      try {
+        cs = getComputedStyle(el);
+      } catch (e) {
+        return true;
+      }
+      if (!cs) return true;
+      if (cs.display === "none" || cs.visibility === "hidden") return true;
+      return !!(cs.filter && cs.filter !== "none");
+    };
+    const report = (phase, el) => {
+      if (isCovered(el)) return;
+      flagged++;
+      console.warn(
+        "[FLASH][dev] 未遮盖 " +
+          phase +
+          " t=" +
+          Math.round(performance.now() - startAt) +
+          "ms class=" +
+          String(el.className || "").slice(0, 70)
+      );
+    };
+    new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (!node || node.nodeType !== 1) return;
+          const found = [];
+          if (node.matches && node.matches(PROBE_SELECTORS)) found.push(node);
+          if (node.querySelectorAll) {
+            node
+              .querySelectorAll(PROBE_SELECTORS)
+              .forEach((el) => found.push(el));
+          }
+          found.forEach((el) => {
+            report("add", el);
+            requestAnimationFrame(() => report("rAF", el));
+            setTimeout(() => report("+150ms", el), 150);
+          });
+        });
+      });
+    }).observe(document.documentElement, { childList: true, subtree: true });
+    console.info(
+      "[FLASH][dev] 探针已安装：新卡片/广告若未被遮盖会打印 [FLASH]"
+    );
+    window.__flashProbe = {
+      flagged: () => flagged,
+    };
+  })();
+
+  /* ===== dev 专用：预覆盖审计（URL 带 #bl-cover-audit 打开）=====
+   * 用于排查“某页面卡片一直保持模糊遮盖”：在 3s/10s 打印页面类型、命中的卡片数、
+   * 每张卡是否被 CSS 预覆盖、卡片/真实元素上的 done 标记、是否已屏蔽/已判定/已入队，
+   * 以及队列状态，便于判断“罩了但没人来摘”的环节。 */
+  (function __installCoverAuditIfRequested() {
+    if ((location.hash || "").indexOf("bl-cover-audit") === -1) return;
+    const AUDIT_SELECTORS = [
+      ".bili-video-card",
+      ".video-page-card-small",
+      ".feed-card",
+      ".bili-dyn-list__item",
+      ".rank-item",
+      ".video-card",
+      ".rank-card",
+    ].join(", ");
+    const audit = (label) => {
+      let kind = null;
+      try {
+        kind = typeof getCurrentPageKind === "function" ? getCurrentPageKind() : null;
+      } catch (e) {
+        kind = "err:" + e.message;
+      }
+      const rootCls = String(document.documentElement.className || "");
+      const cards = Array.from(document.querySelectorAll(AUDIT_SELECTORS));
+      let covered = 0;
+      const details = [];
+      cards.slice(0, 15).forEach((el) => {
+        const real = getRealVideoCardElement(el) || el;
+        let cs = null;
+        try {
+          cs = getComputedStyle(el);
+        } catch (e) {
+          cs = null;
+        }
+        const isCovered = !!(cs && cs.filter && cs.filter !== "none");
+        if (isCovered) covered++;
+        const rect = el.getBoundingClientRect();
+        details.push({
+          cls: String(el.className || "").slice(0, 46),
+          covered: isCovered,
+          attrCard: el.hasAttribute("data-bl-card-done"),
+          attrReal: real.hasAttribute("data-bl-card-done"),
+          realIsSelf: real === el,
+          inline: String(el.style.filter || "").slice(0, 28),
+          blocked: blockedVideoCards.has(real),
+          processed: processedVideoCards.has(real),
+          queued: queuedRealCards.has(real),
+          w: Math.round(rect.width),
+          h: Math.round(rect.height),
+        });
+      });
+      console.info(
+        "[COVERAUDIT] " +
+          label +
+          " kind=" +
+          kind +
+          " cards=" +
+          cards.length +
+          " covered=" +
+          covered
+      );
+      details.forEach((d) => console.info("[COVERAUDIT][card] " + JSON.stringify(d)));
+      console.info("[COVERAUDIT][html] " + rootCls);
+      console.info(
+        "[COVERAUDIT][state] " +
+          JSON.stringify({
+            queue: videoCardProcessQueue.size,
+            decorateQueue: tnameDecorateQueue.size,
+            processing: isVideoCardQueueProcessing,
+            processedCount: countProcessedCards,
+            coverOn: rootCls.indexOf("bilibili-blacklist-pending-cover") !== -1,
+            pageClassOn: rootCls.indexOf("bilibili-blacklist-page-") !== -1,
+          })
+      );
+    };
+    setTimeout(() => audit("t3s"), 3000);
+    setTimeout(() => audit("t10s"), 10000);
+    console.info("[COVERAUDIT] 审计已安装（3s/10s 各打印一次）");
+  })();
+
+  /* ===== dev 专用：强制静音（URL 带 #bl-mute 打开）=====
+   * 工程规则（见仓库根 AGENTS.md）：用浏览器测试 B 站视频页时**必须静音**。
+   * evaluate 可能不可用，所以提供这个纯 dev 钩子：暂停并 mute 所有 video/audio，
+   * 并持续兜底（新插入的媒体元素也会被静音），避免测试时突然出声。 */
+  (function __installMuteIfRequested() {
+    if ((location.hash || "").indexOf("bl-mute") === -1) return;
+    const muteAll = () => {
+      document.querySelectorAll("video,audio").forEach((media) => {
+        try {
+          media.muted = true;
+          media.pause();
+        } catch (e) {
+          /* 忽略：某些媒体元素可能不可控 */
+        }
+      });
+    };
+    muteAll();
+    // 用低频轮询兜底而不是 MutationObserver：媒体元素可能被播放器内部复用/替换。
+    if (!window.__blMuteTimer) window.__blMuteTimer = setInterval(muteAll, 500);
+    // 播放事件也拦一次（capture 阶段，播放器通常直接调 play()）
+    document.addEventListener(
+      "play",
+      (e) => {
+        const media = e.target;
+        if (!media || !media.tagName) return;
+        try {
+          media.muted = true;
+          media.pause();
+        } catch (e2) {
+          /* 忽略 */
+        }
+      },
+      true
+    );
+    console.info("[MUTE][dev] 已开启强制静音（#bl-mute）：所有视频/音频被暂停并静音");
+  })();
+
   blVerbose(
     "[🫥BlackList][dev] 已注入调试/测试入口：window.__blacklistConfig / " +
     "window.__blacklistInterceptors / window.__blacklistExpose（测试方法仅在 dev 构建生效）"

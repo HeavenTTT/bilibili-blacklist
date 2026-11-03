@@ -146,9 +146,12 @@ function normalizeGlobalConfig(raw) {
   // 面板透明度：老配置没有该字段 → 由上面的默认值补齐；已存的越界/非法值在这里被 clamp
   config.panelGlassOpacity = clampSetting(config.panelGlassOpacity, "panelGlassOpacity");
 
-  // 旧版 flagKirby(布尔) 迁移为 blockDisplayMode
+  // 旧版 flagKirby(布尔) 迁移为 blockDisplayMode。
+  // 判据必须是“存储里原本没有新键”：上面的 {...默认值, ...raw} 已把 blockDisplayMode 填成
+  // "kirby"，判 config.blockDisplayMode === undefined 永远不会成立 —— 那样写迁移一次都不会执行，
+  // 1.x 用户「关卡比=隐藏卡片」的偏好会被静默重置成 kirby。
   if (
-    config.blockDisplayMode === undefined &&
+    !Object.prototype.hasOwnProperty.call(raw || {}, "blockDisplayMode") &&
     typeof config.flagKirby === "boolean"
   ) {
     config.blockDisplayMode = config.flagKirby ? "kirby" : "hide";

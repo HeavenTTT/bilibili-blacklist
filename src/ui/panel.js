@@ -151,6 +151,8 @@ function refreshRegexMatchList() {
       saveBlacklistsToStorage();
       invalidateRegexCache();
       refreshRegexMatchList();
+      // 正则规则删除同样必须重判：本页命中该正则的卡片应立即恢复显示
+      rejudgeAllVideoCards();
     },
   });
   if (listElement) regexMatchListElement = listElement;
