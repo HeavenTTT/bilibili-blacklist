@@ -108,7 +108,7 @@ document.addEventListener("DOMContentLoaded", initializeScript);
  */
 function isCurrentPageMain() {
   if (location.hostname !== "www.bilibili.com") return false;
-  return location.pathname === "/" || location.pathname === "/index.html";
+  return location.pathname === "/" || location.pathname === "/index.html" || location.pathname === "/en/index.html" || location.pathname === "/en";
 }
 
 /**
@@ -250,7 +250,7 @@ function resetSearchPageCardState() {
  * @returns {boolean} 如果是视频播放页则返回true，否则返回false。
  */
 function isCurrentPageVideo() {
-  return location.pathname.startsWith("/video/");
+  return location.pathname.startsWith("/video/") || location.pathname.startsWith("/en/video/");
 }
 
 /**

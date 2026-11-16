@@ -4582,7 +4582,7 @@ document.addEventListener("DOMContentLoaded", initializeScript);
 
 function isCurrentPageMain() {
   if (location.hostname !== "www.bilibili.com") return false;
-  return location.pathname === "/" || location.pathname === "/index.html";
+  return location.pathname === "/" || location.pathname === "/index.html" || location.pathname === "/en/index.html" || location.pathname === "/en";
 }
 
 function initializeMainPage() {
@@ -4670,7 +4670,7 @@ function resetSearchPageCardState() {
 }
 
 function isCurrentPageVideo() {
-  return location.pathname.startsWith("/video/");
+  return location.pathname.startsWith("/video/") || location.pathname.startsWith("/en/video/");
 }
 
 const VIDEO_PAGE_SETTLE_MS = 5000;
