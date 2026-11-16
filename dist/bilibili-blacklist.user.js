@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name        Bilibili-BlackList
 // @namespace   https://github.com/HeavenTTT/bilibili-blacklist
-// @version     2.0.4
+// @version     2.0.5
 // @author      HeavenTTT
 // @description Bilibili UP屏蔽插件 - 屏蔽UP主视频卡片，支持精确匹配和正则匹配，支持视频页面、分类页面、搜索页面等。
 // @match       *://*.bilibili.com/*
@@ -4577,12 +4577,38 @@ function initializeScript() {
   }
   blInfo("[🫥BlackList] 脚本已加载🥔");
 }
+const LANG_STR = [
+  "zh-Hans",
+  "zh-Hant",
+  "en",
+  "ja",
+  "th",
+  "ar",
+  "pt",
+  "es",
+  "id",
+  "ms",
+  "ru",
+  "tr",
+];
+function getLangPrefixes() {
+  return LANG_STR.map(lang => `/${lang}`);
+}
 let isfirstLoad = true;
 document.addEventListener("DOMContentLoaded", initializeScript);
 
 function isCurrentPageMain() {
   if (location.hostname !== "www.bilibili.com") return false;
-  return location.pathname === "/" || location.pathname === "/index.html" || location.pathname === "/en/index.html" || location.pathname === "/en";
+  
+  const path = location.pathname;
+  const prefixes = getLangPrefixes(); 
+
+  return prefixes.some(prefix => {
+    const rootPath = prefix === "" ? "/" : `${prefix}/`;
+    const indexPath = `${prefix}/index.html`;
+    
+    return path === rootPath || path === indexPath || path === prefix;
+  });
 }
 
 function initializeMainPage() {
@@ -4670,7 +4696,10 @@ function resetSearchPageCardState() {
 }
 
 function isCurrentPageVideo() {
-  return location.pathname.startsWith("/video/") || location.pathname.startsWith("/en/video/");
+  const path = location.pathname;
+  const prefixes = getLangPrefixes();
+
+  return prefixes.some(prefix => path.startsWith(`${prefix}/video/`));
 }
 
 const VIDEO_PAGE_SETTLE_MS = 5000;

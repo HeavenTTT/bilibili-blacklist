@@ -90,6 +90,27 @@ function initializeScript() {
   }
   blInfo("[🫥BlackList] 脚本已加载🥔");
 }
+/// 干净的全球化支持页面
+const LANG_STR = [
+  "zh-Hans", // 简体中文
+  "zh-Hant", // 繁體中文
+  "en",      // English
+  "ja",      // 日本語
+  "th",      // ภาษาไทย
+  "ar",      // العربية
+  "pt",      // Português 
+  "es",      // Español
+  "id",      // Bahasa Indonesia
+  "ms",      // Bahasa Melayu
+  "ru",      // Русский
+  "tr",      // Türkçe
+  "vi"       // Tiếng Việt
+];
+// 辅助函数：生成所有可能的前缀
+// 将 zh-Hans 转换为空字符串 "" (即无前缀)，其他转换为 "/en", "/ja" 等
+function getLangPrefixes() {
+  return LANG_STR.map(lang => `/${lang}`);
+}
 let isfirstLoad = true;// 监听DOMContentLoaded并检查readyState以进行早期初始化
 // initializeScript 内部已通过 isfirstLoad 保证只执行一次
 document.addEventListener("DOMContentLoaded", initializeScript);
@@ -108,7 +129,19 @@ document.addEventListener("DOMContentLoaded", initializeScript);
  */
 function isCurrentPageMain() {
   if (location.hostname !== "www.bilibili.com") return false;
-  return location.pathname === "/" || location.pathname === "/index.html" || location.pathname === "/en/index.html" || location.pathname === "/en";
+  
+  const path = location.pathname;
+  const prefixes = getLangPrefixes(); 
+  // prefixes 结果: ["", "/zh-Hant", "/en", "/ja", "/th", ...]
+
+  return prefixes.some(prefix => {
+    // 针对默认前缀 "" 生成: "/" 和 "/index.html"
+    // 针对其他前缀 "/en" 生成: "/en/", "/en/index.html", "/en"
+    const rootPath = prefix === "" ? "/" : `${prefix}/`;
+    const indexPath = `${prefix}/index.html`;
+    
+    return path === rootPath || path === indexPath || path === prefix;
+  });
 }
 
 /**
@@ -250,7 +283,12 @@ function resetSearchPageCardState() {
  * @returns {boolean} 如果是视频播放页则返回true，否则返回false。
  */
 function isCurrentPageVideo() {
-  return location.pathname.startsWith("/video/") || location.pathname.startsWith("/en/video/");
+  const path = location.pathname;
+  const prefixes = getLangPrefixes();
+
+  // 遍历所有前缀，只要路径以 "/语言前缀/video/" 开头即可
+  // 如果 prefix 是 ""，则匹配 "/video/"
+  return prefixes.some(prefix => path.startsWith(`${prefix}/video/`));
 }
 
 /**
