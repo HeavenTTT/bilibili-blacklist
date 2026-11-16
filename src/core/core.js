@@ -209,11 +209,62 @@ function clearPendingFilter(cardElement) {
 /**
  * 把当前页面已渲染的所有视频卡片标记为“未处理”（应用 filter 遮盖）。
  * 用于视频页进入时：立即遮住推荐卡片，但不启动观察器/不判定，规避 header 渲染竞争。
+ * 闸门与正常入队路径（processCard）保持一致：关闭了“加载时立即隐藏”、或用户正处在
+ * “取消屏蔽（临时显示全部）”状态时，不应该再把卡片糊一遍。
  */
 function markAllVideoCardsPending() {
+  if (!globalPluginConfig.flagHideOnLoad || isShowAllVideos) return;
   const cards = queryAllVideoCards();
   if (!cards) return;
   cards.forEach((card) => applyPendingFilter(card));
+}
+
+/* ===== 卡片/广告的 CSS 预覆盖（先于 JS 生效，避免瀑布流卡片“亮一下再变糊”） =====
+ *
+ * 背景：JS 给新卡片加 pending filter 依赖 MutationObserver 回调或下一轮扫描，
+ * 而瀑布流卡片是浏览器分批插入并**立即绘制**的 —— 只要有一帧没被罩住，肉眼就是闪烁
+ * （广告卡片尤其明显：它们要等到 blockMainPageAds 的 200ms 合并调度才被处理）。
+ *
+ * 做法（与 ads.js 的视频页广告预覆盖同一思路）：
+ *   1) 求值期/初始化时给 <html> 加「页面类型类」+「预覆盖类」；
+ *   2) CSS 用 `:not([data-bl-card-done])` 罩住“还没判定完”的卡片（见 ui/styles.js）；
+ *   3) 判定提交时给该卡片打上 data-bl-card-done，CSS 罩子立刻失效，
+ *      再由 hideVideoCard / 遮罩层接管后续视觉。
+ * 这样即使 JS 晚几百毫秒，卡片从插入的第一帧起就是模糊的。
+ */
+const PENDING_COVER_CLASS = "bilibili-blacklist-pending-cover";
+const PENDING_DONE_ATTR = "data-bl-card-done";
+
+/** 当前是否应该启用“未处理”预覆盖（关闭「加载时立即隐藏」或「取消屏蔽」时都不罩）。 */
+function shouldCoverPendingCards() {
+  const root = document.documentElement;
+  if (!root) return false;
+  // 页面类型类由 pages.js 在求值期打上；没有它说明当前页不支持卡片处理（如用户空间页）。
+  if ((root.className || "").indexOf("bilibili-blacklist-page-") === -1) return false;
+  return !!globalPluginConfig.flagHideOnLoad && !isShowAllVideos;
+}
+
+/** 同步 <html> 上的预覆盖类（初始化、切「取消屏蔽」、改配置后调用）。 */
+function syncPendingCoverClass() {
+  const root = document.documentElement;
+  if (!root) return;
+  if (shouldCoverPendingCards()) root.classList.add(PENDING_COVER_CLASS);
+  else root.classList.remove(PENDING_COVER_CLASS);
+  // 广告的预覆盖类由 ads.js 负责：同一批时机一起刷新（函数声明在同一 IIFE 内已提升）。
+  if (typeof syncAdsPendingClass === "function") syncAdsPendingClass();
+}
+
+/** 判定提交后给卡片打“已判定”标记，让 CSS 预覆盖失效（JS 侧视觉随即接管）。
+ *  注意：卡片元素本身与 getRealVideoCardElement() 归一后的元素可能不是同一个
+ *  （例如搜索页的真实元素是父级、分类页是外层 .feed-card），而 CSS 命中的是**卡片选择器**，
+ *  所以两个元素都要打标记 —— 否则会出现“JS 认为已判定、CSS 仍在罩着”的永久模糊。 */
+function markCardPendingDone(cardElement) {
+  if (!cardElement) return;
+  if (cardElement.setAttribute) cardElement.setAttribute(PENDING_DONE_ATTR, "1");
+  const real = getRealVideoCardElement(cardElement);
+  if (real && real !== cardElement && real.setAttribute) {
+    real.setAttribute(PENDING_DONE_ATTR, "1");
+  }
 }
 
 /**
@@ -300,26 +351,11 @@ function cancelCardBlockReason(card, type, value) {
     return; // 正则/cm/竖屏/广告 不支持
   }
 
-  // 只刷新该卡片：恢复显示 + 重新入队完整判定。
-  // 判定期间用 pending 模糊作为“重新检查中”的视觉反馈。
-  clearPendingFilter(card);
-  const realCard = getRealVideoCardElement(card);
-  unmarkBlockedCard(realCard);
-  removeBlockReason(card);
-  removeKirbyOverlay(card);
-  if (realCard) {
-    realCard.style.display = "block";
-    realCard.style.visibility = "visible";
-  }
-  if (globalPluginConfig.flagHideOnLoad && !isShowAllVideos) {
-    applyPendingFilter(card);
-  }
-  processedVideoCards.delete(realCard || card);
-  videoCardProcessQueue.add(card);
-  if (!isVideoCardQueueProcessing) {
-    processVideoCardQueue();
-  }
-  refreshBlockCountDisplay();
+  // 规则已删除：全页重判，而不是只刷新这一张卡片。
+  // 必须全页的原因：同一条规则可能同时屏蔽了页面上多张卡片，只恢复被点的那一张会留下
+  // “规则删了但其它卡片还遮着”的状态，看起来像删除失败；而屏蔽/判定都是按元素去重的，
+  // 不会自己重来一遍。重判期间用 pending 模糊作为“重新检查中”的视觉反馈。
+  rejudgeAllVideoCards();
 }
 
 /**
@@ -359,8 +395,11 @@ function setBlockReasonOnCard(cardElement, type, reasonValue = null) {
   const cancellable = isReasonCancellable(type, reasonValue);
   reasonElement.textContent = buildBlockReasonText(type, reasonValue);
   reasonElement.classList.toggle("is-cancellable", cancellable);
+  // 文案必须与实际行为一致：点一下会**从黑名单删除该规则**（跨页面生效），
+  // 不是“只临时放行这一张卡”。历史上这里写的是“仅当前视频,不影响黑名单规则”，
+  // 与 cancelCardBlockReason 的实现相反，属于会让用户误删规则的数据丢失级误导。
   reasonElement.title = cancellable
-    ? "点击取消本卡屏蔽(仅当前视频,不影响黑名单规则)"
+    ? "点击取消屏蔽：从黑名单删除该规则，并重判本页卡片"
     : "";
   if (cancellable) {
     reasonElement.dataset.blockType = type;
@@ -444,7 +483,76 @@ function resetCardDecorations(cardElement) {
     unmarkBlockedCard(realCard);
     realCard.style.display = "";
     realCard.style.visibility = "";
+    // 重新判定：摘掉“已判定”标记，让 CSS 预覆盖重新罩住它（避免重判期间亮一下）
+    realCard.removeAttribute(PENDING_DONE_ATTR);
+    cardElement.removeAttribute(PENDING_DONE_ATTR);
   }
+}
+
+/**
+ * 让当前页所有卡片重新走一遍判定（删除规则、修改配置后调用）。
+ *
+ * 为什么需要它：屏蔽是“一次性提交 + 按元素去重”的（processedVideoCards / queuedRealCards），
+ * 新增规则有 hideAllCardsByXxx 做即时隐藏，删除规则与改配置却没有任何反向路径 ——
+ * 结果是“加了规则立刻生效，删了规则/关了开关要刷新页面”。
+ * 这里把已有积木组合成统一入口：清装饰 → 重建去重表 → 全量重新入队 → 交给队列
+ * （命中接口缓存的卡片零网络）。
+ *
+ * 注意：用户正处在「取消屏蔽」(isShowAllVideos) 状态时直接跳过，
+ * 否则会把用户刚展开的卡片又立刻藏回去。
+ */
+function rejudgeAllVideoCards() {
+  if (isShowAllVideos) return;
+  const cards = queryAllVideoCards();
+  if (!cards) return;
+  // 去重表整体重建：B 站会复用卡片节点，旧的“已判定/已入队”记录必须一起清掉，
+  // 否则这些卡片会被当成“处理过了”而完全跳过（搜索页翻页有同样的问题）。
+  processedVideoCards = new WeakSet();
+  queuedRealCards = new WeakSet();
+  tnameRetriedCards = new WeakSet();
+  videoTagRetriedCards = new WeakSet();
+  cards.forEach((card) => {
+    resetCardDecorations(card); // 清容器/标签组/遮罩/pending/屏蔽计数
+    videoCardProcessQueue.add(card);
+  });
+  lastBlockScanExecutionTime = 0;
+  if (!isVideoCardQueueProcessing) {
+    processVideoCardQueue();
+  }
+  refreshBlockCountDisplay();
+}
+
+/* 影响“判定结果或卡片外观”的配置项：改动后需要重判当前页卡片。
+ * 纯外观/日志项（logLevel、flagPanelGlass、panelGlassOpacity、
+ * hoverRevealDelaySeconds、flagHeaderButton）不影响判定，跳过以免无谓重判。 */
+const CONFIG_KEYS_NEEDING_REJUDGE = [
+  "flagInfo",
+  "flagAD",
+  "flagCM",
+  "flagTName",
+  "flagVideoTag",
+  "flagVertical",
+  "flagAlwaysFetchTName",
+  "flagHideOnLoad",
+  "blockDisplayMode",
+  "displayModeInfo",
+  "displayModeAD",
+  "displayModeTName",
+  "displayModeVideoTag",
+  "displayModeCM",
+  "displayModeVertical",
+];
+
+/**
+ * 配置落盘后调用：需要的话把当前页卡片重判一遍（配置面板与油猴菜单共用）。
+ * @param {string} configKey 刚被修改的配置键
+ */
+function onGlobalConfigSaved(configKey) {
+  if (CONFIG_KEYS_NEEDING_REJUDGE.indexOf(configKey) !== -1) {
+    rejudgeAllVideoCards();
+  }
+  // “加载时立即隐藏 / 屏蔽广告”这类开关会影响预覆盖层，保存后立刻同步一次。
+  syncPendingCoverClass();
 }
 
 /**
@@ -557,6 +665,17 @@ function scanAndBlockVideoCards() {
 
     videoCards.forEach(processCard);
 
+    // 兜底摘罩：只要这张卡“已经判定过”或“已经屏蔽”，就必须带上 data-bl-card-done。
+    // 否则一旦队列里的真实元素与 CSS 预覆盖命中的元素不是同一个（搜索页父级、分类页外层）
+    // 或某条路径漏了提交标记，卡片会被 CSS 永远罩着 —— 表现就是“页面一直模糊”。
+    // 这个扫描本来就会周期性执行（非播放页 8s、播放页 2.5s），所以能自愈。
+    videoCards.forEach((card) => {
+      const real = getRealVideoCardElement(card);
+      if (blockedVideoCards.has(real) || processedVideoCards.has(real)) {
+        markCardPendingDone(card);
+      }
+    });
+
     // 如果队列中有待处理的卡片且当前未在处理中，则开始处理队列
     if (videoCardProcessQueue.size > 0 && !isVideoCardQueueProcessing) {
       processVideoCardQueue();
@@ -610,6 +729,8 @@ function fixMainPageLayout() {
  */
 function toggleShowAllBlockedVideos() {
   isShowAllVideos = !isShowAllVideos;
+  // 「取消屏蔽」= 不应该再有任何“未处理”遮盖：同步摘掉/恢复 CSS 预覆盖与广告预覆盖。
+  syncPendingCoverClass();
   pruneDisconnectedBlockedCards(); // 只对仍存在的卡片做显隐/遮罩切换
   blockedVideoCards.forEach((card) => {
     const overlay = card.querySelector("#bilibili-blacklist-kirby");
@@ -655,6 +776,10 @@ function getVideoCardInfo(cardElement) {
   let upName = "";
   let videoTitle = "";
 
+  // 已知限制（实测 2026-11 搜索页）：顶部「UP主精选」横排卡的作者链接在卡片节点**之外**
+  // （模块头部），因此这里取不到 UP 名、名称类规则对这类卡片不生效；它们仍会走阶段 B 的
+  // 分类标签/视频标签/竖屏判定。不要为了覆盖它们而向上跨模块找作者 —— 父容器里可能混着
+  // 其它卡片的作者，取错人会误屏蔽正常视频。
   // UP主名称：优先具体作者选择器；未取到再用“指向用户空间的链接”兜底
   const upNameElements = cardElement.querySelectorAll(
     UP_NAME_SELECTORS.join(", ")
@@ -787,7 +912,9 @@ function addToExactBlacklist(upName, cardElement = null) {
     if (findExactBlacklistIndex(upName) === -1) {
       exactMatchBlacklist.push(upName);
       saveBlacklistsToStorage();
-      refreshAllPanelTabs();
+      // 只刷新真正变化的那一张列表：以前调用 refreshAllPanelTabs 会把 4 个列表
+      // 与整个「插件配置」页（≈30 个控件）全部重建，加一条规则就抖一次且会清空未保存的输入。
+      refreshExactMatchList();
       if (cardElement) {
         hideVideoCard(cardElement, "info");
       }
@@ -809,6 +936,8 @@ function removeFromExactBlacklist(upName) {
       exactMatchBlacklist.splice(index, 1);
       saveBlacklistsToStorage();
       refreshExactMatchList();
+      // 规则删除必须重判：否则被这条规则屏蔽的卡片会一直遮着（判定按元素去重，不会自己重来）
+      rejudgeAllVideoCards();
     }
   } catch (e) {
     console.error("[🫥BlackList] 移除黑名单出错:", e);
@@ -828,7 +957,8 @@ function addToTagNameBlacklist(tagName, cardElement = null) {
     if (!tagNameBlacklist.includes(tagName)) {
       tagNameBlacklist.push(tagName);
       saveBlacklistsToStorage();
-      refreshAllPanelTabs();
+      // 只刷新本列表（理由见 addToExactBlacklist：避免整页重建）
+      refreshTagNameList();
       if (cardElement) {
         hideVideoCard(cardElement, "tname");
       }
@@ -850,6 +980,8 @@ function removeFromTagNameBlacklist(tagName) {
       tagNameBlacklist.splice(index, 1);
       saveBlacklistsToStorage();
       refreshTagNameList();
+      // 规则删除必须重判：否则被这条标签规则屏蔽的卡片会一直遮着
+      rejudgeAllVideoCards();
     }
   } catch (e) {
     console.error("[🫥BlackList] 移除标签黑名单出错:", e);
@@ -869,7 +1001,8 @@ function addToVideoTagBlacklist(tagName, cardElement = null) {
     }
     videoTagBlacklist.push(normalizedTagName);
     saveBlacklistsToStorage();
-    refreshAllPanelTabs();
+    // 只刷新本列表（理由见 addToExactBlacklist：避免整页重建）
+    refreshVideoTagList();
     if (cardElement) {
       hideVideoCard(cardElement, "videoTag", normalizedTagName);
     }
@@ -890,6 +1023,8 @@ function removeFromVideoTagBlacklist(tagName) {
     videoTagBlacklist.splice(index, 1);
     saveBlacklistsToStorage();
     refreshVideoTagList();
+    // 规则删除必须重判：否则被这条视频标签规则屏蔽的卡片会一直遮着
+    rejudgeAllVideoCards();
   } catch (e) {
     console.error("[🫥BlackList] 移除视频标签黑名单出错:", e);
   }

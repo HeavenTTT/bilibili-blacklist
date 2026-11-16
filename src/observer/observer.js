@@ -147,8 +147,16 @@ const contentObserver = new MutationObserver((mutations) => {
  * @param {(el: HTMLElement) => void} onFound - 找到后回调
  * @param {number} intervalMs - 轮询间隔（毫秒）
  * @param {number} timeoutMs - 总超时（毫秒），超时后放弃观察（由定时补扫兜底）
+ * @param {Function} [onTimeout] - 超时回调（可选）。调用方用它复位“重试已排过”标志，
+ *   否则标志会永久停在 true、该重试路径从此失效。
  */
-function waitForContainer(selector, onFound, intervalMs = 250, timeoutMs = 15000) {
+function waitForContainer(
+  selector,
+  onFound,
+  intervalMs = 250,
+  timeoutMs = 15000,
+  onTimeout = null
+) {
   const find = () => {
     const el = document.getElementById(selector) || document.querySelector(selector);
     if (el) {
@@ -158,7 +166,10 @@ function waitForContainer(selector, onFound, intervalMs = 250, timeoutMs = 15000
     }
   };
   const timer = setInterval(find, intervalMs);
-  const timeout = setTimeout(() => clearInterval(timer), timeoutMs);
+  const timeout = setTimeout(() => {
+    clearInterval(timer);
+    if (typeof onTimeout === "function") onTimeout();
+  }, timeoutMs);
   find();
 }
 

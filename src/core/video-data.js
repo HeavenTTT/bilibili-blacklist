@@ -79,6 +79,12 @@ function getLinkBvId(link) {
 // BV -> view 接口数据缓存（10 分钟），避免同一视频在多个页面/队列中重复请求
 const bvApiDataCache = new Map();
 const BV_API_CACHE_TTL = 10 * 60 * 1000;
+// 每个缓存 Map 的条目上限：长会话（无限滚动、反复翻页/切集）下缓存会单调增长，
+// 超出后按插入顺序淘汰最旧条目（Map 保持插入序，零依赖的 LRU 近似）。
+const BV_API_CACHE_MAX = 400;
+// 失败结果的短缓存（负缓存）：接口超时 / 限流 / code 非 0 时 60 秒内不再重复请求同一 BV，
+// 避免“每次重判都先发一次注定失败的请求”造成缓存击穿。
+const BV_API_NEGATIVE_TTL_MS = 60 * 1000;
 // 单次接口请求超时：没有超时的话，一个挂起的请求会把整条串行队列永久卡死，
 // 后面所有卡片都停在“未处理”状态（搜索页翻页后延迟十几秒的长尾来源之一）。
 const BV_API_TIMEOUT_MS = 5000;
@@ -86,16 +92,24 @@ const BV_API_TIMEOUT_MS = 5000;
 // 命中缓存不经过这里（只有真正发网络请求才等待）。默认 50ms。
 const BV_API_MIN_INTERVAL_MS = 50;
 let lastBvApiRequestAt = 0;
-async function bvApiThrottle() {
-  const now = Date.now();
-  const wait = lastBvApiRequestAt + BV_API_MIN_INTERVAL_MS - now;
-  if (wait > 0) await sleep(wait);
-  lastBvApiRequestAt = Date.now();
+// 串行化限速：并发调用（队列 + 自动连播）各自读到同一个 lastBvApiRequestAt 时会同时放行，
+// 用一条 Promise 链把「等待 + 记录时间」整体串起来，保证全局 50ms 间隔真的成立。
+let biliApiThrottleChain = Promise.resolve();
+function bvApiThrottle() {
+  const slot = biliApiThrottleChain.then(async () => {
+    const delay = lastBvApiRequestAt + BV_API_MIN_INTERVAL_MS - Date.now();
+    if (delay > 0) await sleep(delay);
+    lastBvApiRequestAt = Date.now();
+  });
+  // 链上消化异常，避免一次失败让后续所有请求都被拒绝。
+  biliApiThrottleChain = slot.catch(() => {});
+  return slot;
 }
 
 /**
  * 取某个缓存 Map 里该 bvid 的未过期条目（entry，不是 data）。
  * view 与视频标签两个接口共用同一套「取缓存」语义：命中缓存不计次数、不限速。
+ * 过期条目顺手删除，避免长会话下 Map 只增不减。
  * @param {Map} cache
  * @param {string} bvid
  * @returns {{data: object|null, expire: number}|null}
@@ -103,7 +117,26 @@ async function bvApiThrottle() {
 function getCachedEntry(cache, bvid) {
   if (!bvid) return null;
   const cached = cache.get(bvid);
-  return cached && Date.now() < cached.expire ? cached : null;
+  if (!cached) return null;
+  if (Date.now() < cached.expire) return cached;
+  cache.delete(bvid);
+  return null;
+}
+
+/**
+ * 写入缓存条目（带容量上限：新增且已满时淘汰最旧一条）。
+ * 负缓存也走这里（data 为 null 的条目）。
+ * @param {Map} cache
+ * @param {string} bvid
+ * @param {{data: object|null, expire: number}} entry
+ */
+function setCachedEntry(cache, bvid, entry) {
+  if (!bvid) return;
+  if (!cache.has(bvid) && cache.size >= BV_API_CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
+  }
+  cache.set(bvid, entry);
 }
 
 /**
@@ -172,12 +205,18 @@ async function getBilibiliVideoApiData(bvid) {
     "[🫥BlackList] API 请求失败:"
   );
   if (json && json.code === 0) {
-    bvApiDataCache.set(bvid, {
+    setCachedEntry(bvApiDataCache, bvid, {
       data: json.data,
       expire: Date.now() + BV_API_CACHE_TTL,
     });
     return json.data;
   }
+  // 失败（超时 / 限流 / code 非 0）：写一条 60 秒负缓存，
+  // 避免同一个 BV 在重试与重判路径上被反复请求（缓存击穿）。
+  setCachedEntry(bvApiDataCache, bvid, {
+    data: null,
+    expire: Date.now() + BV_API_NEGATIVE_TTL_MS,
+  });
   return null;
 }
 
@@ -210,12 +249,17 @@ async function getBilibiliVideoTagApiData(bvid) {
   );
   if (json && json.code === 0 && Array.isArray(json.data)) {
     const data = { videoTags: json.data };
-    bvTagApiDataCache.set(bvid, {
+    setCachedEntry(bvTagApiDataCache, bvid, {
       data,
       expire: Date.now() + BV_API_CACHE_TTL,
     });
     return data;
   }
+  // 同 view 接口：失败结果写 60 秒负缓存，避免重复请求同一 BV。
+  setCachedEntry(bvTagApiDataCache, bvid, {
+    data: null,
+    expire: Date.now() + BV_API_NEGATIVE_TTL_MS,
+  });
   return null;
 }
 
@@ -473,6 +517,15 @@ function processVideoCardQueue() {
       refreshBlockCountDisplay();
       // 处理队列为空：触发分区表 feed 增量更新（popular / ranking，12 小时节流，内部自行判断）。
       updateTNameListFromFeed();
+      // 异常中断后必须自己把队列唤醒一次。
+      // 出队时卡片已从 Set 移除、直到提交才标记 processed，所以异常会让剩余卡片留在队列里；
+      // 而队列的重启只发生在 observer 看到**新卡片**时（observer.js 的 fresh.length > 0 分支），
+      // 主页/分类/排行/动态页又没有周期补扫 —— 不在这里重新唤醒，这些卡片就会永远
+      // 停在“未处理”的模糊遮盖态。
+      // 不会死循环：每次出队都让队列长度单调收敛，重排只发生在失败重试时。
+      if (videoCardProcessQueue.size > 0 || tnameDecorateQueue.size > 0) {
+        setTimeout(processVideoCardQueue, 0);
+      }
     });
 }
 
@@ -487,6 +540,7 @@ function releaseCurrentQueuedCard() {
   const card = currentQueuedCard;
   currentQueuedCard = null;
   if (!card) return;
+  markCardPendingDone(card); // 按放行收尾：CSS 预覆盖也要同步摘掉
   const realCard = getRealVideoCardElement(card) || card;
   clearPendingFilter(card);
   unmarkBlockedCard(realCard);
@@ -588,6 +642,10 @@ async function runVideoCardQueueLoop() {
     // 否则它们照样各消耗一次 API 请求 + 一次限速等待，把新一页的卡片堵在队尾。
     // 用 === false 而不是 !card.isConnected：万一环境不支持 isConnected（undefined），
     // 取反会把所有卡片都跳过，等于整个屏蔽功能失效。
+    //
+    // 注意：这里**不要**清 pending 滤镜、也不要标记 processed ——
+    // 卡片节点可能被 B 站回收后重新插入（瀑布流/复用节点），清掉滤镜会让它再出现时“亮一下”；
+    // 保持原样则它回来时仍是“未处理”的模糊态，由后续扫描/观察器正常判定。
     if (card.isConnected === false) {
       continue;
     }
@@ -729,6 +787,9 @@ async function runVideoCardQueueLoop() {
     }
 
     // ===== 提交 =====
+    // 先打“已判定”标记：CSS 预覆盖（styles.js 的 :not([data-bl-card-done])）随即失效，
+    // 避免“CSS 罩子还在、JS 又清掉了内联 filter”造成的一帧空档。
+    markCardPendingDone(card);
     if (shouldHide) {
       // 命中：先去掉“未处理”filter 遮盖，再走正式遮蔽（hide / kirby 遮罩 / 模糊）
       clearPendingFilter(card);

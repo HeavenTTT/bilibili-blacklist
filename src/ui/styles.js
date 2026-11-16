@@ -664,11 +664,42 @@ GM_addStyle(`
   }
 
   /* ===== 灰度效果：空间页「已屏蔽 UP」整页黑白 =====
-   * 由 pages.js 的 addBlockButtonToUserSpace 按屏蔽状态给 document.body 增删。
-   * 2.0.1 曾移除过这条规则（理由是 favlist/合集页里与该 UP 无关的视频也被灰掉），
-   * 现已按需求恢复；不要因为同样的理由再次删除 —— 那会让空间页完全没有整体视觉提示。
-   * 若要去掉副作用，请改成全屏 backdrop-filter 遮罩层，而不是删掉这条规则。 */
-  .bilibili-blacklist-grayscale {
-    filter: grayscale(95%);
+   * 实现方式：pages.js 的 setUserSpaceGrayscale 在 body 上插一层固定定位的遮罩，
+   * 对该遮罩的**背景**做 backdrop-filter: grayscale(95%)，而不是给 document.body 加 filter。
+   *
+   * 为什么不再用 body 上的 filter（2.0.3 及以前的做法）：
+   *   1) filter 会作用于全部后代 —— 插件自己的管理面板也是 body 的子元素，会被一起灰掉；
+   *   2) 祖先的 filter 会给 position:fixed 的后代建立包含块，B 站吸顶栏因此变成随页面滚动，
+   *      管理面板的定位基准也从视口变成 body。
+   * 遮罩方案没有这两个副作用：面板正常显示/定位，页面视觉仍是“整体黑白”。
+   * 2.0.1 曾整体移除灰度（理由是 favlist/合集页里与该 UP 无关的视频也被灰掉），2.0.2 恢复；
+   * 这次改的是实现方式，**不要再退回 body filter**，也不要把这个整体视觉提示删掉。
+   * pointer-events: none 保证遮罩不吃鼠标事件；z-index 低于管理面板（99999）。 */
+  .bilibili-blacklist-grayscale-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99990;
+    pointer-events: none;
+    backdrop-filter: grayscale(95%);
+    -webkit-backdrop-filter: grayscale(95%);
+  }
+  /* ===== 卡片“未处理”CSS 预覆盖 =====
+   * 为什么需要：JS 给新卡片加 pending filter 要等 MutationObserver 回调或下一轮扫描，
+   * 而瀑布流卡片是浏览器分批插入并立即绘制的 —— 只要有一帧没被罩住，肉眼就是“闪烁”。
+   * 这里按页面类型在 <html> 上加类，用 CSS 先罩住“还没判定完”的卡片
+   * （:not([data-bl-card-done])），判定提交时 JS 再给该卡打标记把罩子摘掉。
+   * filter 参数与 core.js 的 PENDING_FILTER_STYLE 保持一致（本文件在其之前求值，
+   * 不能引用该常量，只能硬编码同一串：改一处必须同步改另一处）。
+   * 页面类型类限定当前页的卡片选择器，避免 .feed-card 与 .bili-video-card 嵌套时被双重模糊。 */
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-main .bili-video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-search .bili-video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-video .video-page-card-small:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-category .feed-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .bili-video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .rank-item:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .video-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-ranking .rank-card:not([data-bl-card-done]),
+  html.bilibili-blacklist-pending-cover.bilibili-blacklist-page-dynamic .bili-dyn-list__item:not([data-bl-card-done]) {
+    filter: blur(8px) grayscale(0.5) opacity(0.4) !important;
   }
 `);

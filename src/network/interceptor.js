@@ -162,9 +162,13 @@ function getStreamBlockReason(item) {
   }
 
   // 2) UP 名 / 标题：精确 + 正则（与 DOM 侧同一套规则，零网络）
+  //    必须遵守 flagInfo 闸门：用户在面板关掉“屏蔽标题/UP主名”后，
+  //    DOM 侧不再按名字屏蔽，网络拦截也不能继续删条目（否则行为不一致、计数还涨）。
   var upName = (item.owner && item.owner.name) || "";
   var title = item.title || "";
-  if ((upName || title) && isBlacklisted(upName, title)) return "info";
+  if (globalPluginConfig.flagInfo && (upName || title) && isBlacklisted(upName, title)) {
+    return "info";
+  }
 
   // 3) 分区 / 竖屏 / 视频标签：只吃缓存（队列判定过的卡片才会命中）
   var bvid = item.bvid || getLinkBvId(item.uri || "");
@@ -303,15 +307,28 @@ function installNetworkInterceptors() {
     return originFetch(input, init).then(function (res) {
       // 不改写就不必读 body（res.clone().text() 对每个推荐响应都是一次额外解析）
       if (!NET_INTERCEPT.rewrite || !url || !netUrlMatches(url)) return res;
-      return res.clone().text().then(function (text) {
-        var rewritten = rewriteRecommendation(url, text);
-        if (rewritten === text) return res;
-        return new Response(rewritten, {
-          status: res.status,
-          statusText: res.statusText,
-          headers: res.headers
-        });
-      });
+      // 读 body 可能失败（body 已被消费 / 不透明响应 / 流异常）。必须退回原响应：
+      // 否则一个本来成功的页面请求会被我们包装成 reject，把站点功能弄坏。
+      var textPromise;
+      try {
+        textPromise = res.clone().text();
+      } catch (e) {
+        return res;
+      }
+      return textPromise.then(
+        function (text) {
+          var rewritten = rewriteRecommendation(url, text);
+          if (rewritten === text) return res;
+          return new Response(rewritten, {
+            status: res.status,
+            statusText: res.statusText,
+            headers: res.headers
+          });
+        },
+        function () {
+          return res;
+        }
+      );
     });
   };
 }

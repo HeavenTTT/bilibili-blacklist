@@ -1,5 +1,81 @@
 # 更新记录 (Changelog)
 
+## [2.0.4] - 预覆盖防闪烁 + 行为一致性修复
+
+### 修复
+
+- **删除黑名单规则后不再只影响被点的那一张卡**：新增 `rejudgeAllVideoCards()`——
+  删除规则（精确 / 正则 / 分类标签 / 视频标签）后会清掉卡片装饰与三张去重表并重判整页，
+  所有被该规则屏蔽的卡片立即恢复显示。「屏蔽原因」按钮的 tooltip 也改为与实现一致的
+  「从黑名单删除该规则，并重判本页卡片」（旧文案声称"不影响黑名单规则"，与实际行为相反）。
+- **修改面板配置后立即生效**：`onGlobalConfigSaved(key)` 会对 15 个影响判定/外观的配置项
+  （屏蔽类型开关、显示方式、加载时隐藏、flagAlwaysFetchTName 等）触发整页重判，
+  不再需要刷新页面；`logLevel` / 面板滤镜 / 悬停延迟等纯外观项不触发。
+- **队列异常中断后自动续跑**：`processVideoCardQueue` 的 `finally` 在队列仍有残留时
+  重新唤醒一次，修复「一次异常后剩余卡片永远停在未处理模糊态」。
+- **非播放页每 8 秒兜底巡检**：重连被整站替换的观察根 + 强制全量扫描一次，
+  修复「观察器绑到游离节点后新卡片不再被屏蔽」（此前只有播放页有重连与周期扫描）。
+- **空间页整页灰度改用全屏 `backdrop-filter` 遮罩**：不再给 `document.body` 加 `filter`，
+  管理面板不再被一起灰掉，B 站吸顶栏与管理面板的 `position: fixed` 恢复视口基准。
+- **1.x `flagKirby` 迁移真正生效**：旧判据 `blockDisplayMode === undefined` 在默认值合并后
+  永不成立（迁移是死代码），改为「存储里原本没有 `blockDisplayMode` 键」才迁移。
+- **网络拦截对齐 DOM 侧行为**：补 `flagInfo` 闸门（关掉「标题/UP主名」后不再删推荐条目）；
+  读取响应 body 失败时退回原始响应，避免把成功的页面请求包装成 reject。
+- **拒绝空正则**：`//` 会被编译成「匹配一切」的 `new RegExp("", "i")`，现在解析阶段直接判无效。
+- **`markAllVideoCardsPending` 补配置闸门**：关闭「加载时立即隐藏」或处于「取消屏蔽」时，
+  进入播放页不再先把卡片糊一遍。
+- **顶栏按钮重试不再永久卡死**：`waitForContainer` 增加超时回调，15s 超时后复位
+  `headerButtonRetryScheduled`，按钮重试路径可再次生效（仅剩观察器兜底的问题已消除）。
+- **统计刷盘不再丢增量**：先确认 `GM_setValue` 成功再推进快照，写失败时下轮重算重试。
+
+### 工程
+
+- 新增 `npm run check:build`（`scripts/check-build-integrity.js`）：零依赖的构建完整性检查，
+  断言产物包含源码全部顶层标识符与 `defaultGlobalPluginConfig` 全部配置键（拦截
+  `stripComments` 误删代码）、发布产物不含 dev 调试入口、`@version` 与 package.json 一致。
+- 新增 `npm run verify`：`build → check:build → node --check → git diff --exit-code -- dist`，
+  把「源码改了但产物没重建」从人眼负责变成命令级拦截。
+- **接口缓存治理**：10 分钟 TTL 命中/过期即删、每个缓存 Map 上限 400 条（超出淘汰最旧）、
+  失败结果写入 60 秒负缓存 —— 长会话下缓存不再单调增长，也不会对同一个失效 BV 反复发请求。
+- **面板局部刷新**：新增黑名单规则只刷新对应那一个列表，不再重建整个「插件配置」页
+  （此前每加一条规则都会清空未保存的输入并抖动一次）。
+- **接口限速串行化**：全局 50ms 最小间隔改为 Promise 链串行获取，
+  并发调用（卡片队列 + 自动连播）不会再同时放行。
+- **编辑器类型护栏**：新增 `jsconfig.json` + `types/globals.d.ts`（声明 `GM_*` /
+  `unsafeWindow` / `__DSH_DEV__`）。src 没有 import/export，TS 会把全部模块视为同一全局作用域，
+  编辑器打开即可提示「未定义变量 / 拼写错误」；跑完整检查需自行 `npx tsc -p jsconfig.json`。
+- **已知限制（未修）**：搜索页顶部「UP主精选」横排卡的作者链接在卡片节点之外，
+  名称类规则对这类卡片不生效（既有行为，已在 `getVideoCardInfo` 注释说明原因与不可取的做法）。
+
+### 修复（瀑布流“闪烁”）
+
+- **新出现的卡片/广告从第一帧起就被遮盖**：此前"未处理"遮盖依赖 JS 在
+  `MutationObserver` 回调 / 下一轮扫描里给元素写内联 `filter`；而瀑布流卡片（尤其**广告类**
+  卡片：它们要等 `blockMainPageAds` 的 200ms 合并调度才被处理）是先插入并绘制、稍后才被罩住，
+  肉眼就是"亮一下再变糊"的闪烁。
+  现在改为**CSS 预覆盖**（与播放页广告同一思路）：
+  - 卡片：`html.bilibili-blacklist-page-*` + `html.bilibili-blacklist-pending-cover`，用
+    `:not([data-bl-card-done])` 罩住"还没判定完"的卡片；判定提交时打 `data-bl-card-done` 摘罩。
+  - 主页/搜索页/排行榜广告：新增 `html.bilibili-blacklist-main-ad-pending` + `:not([data-bl-ad-done])`；
+    `blockMainPageAds` 改为走 `resolveAdElement`（先打已判定标记，再按显示模式遮蔽），
+    预覆盖与正式遮蔽之间不再有空档。
+  - 页面类型类在**求值期**就写到 `<html>` 上（不等 DOMContentLoaded）；
+    重判、取消屏蔽、改配置时同步预覆盖类，避免重判期间亮一下。
+- **回退一次“已移除卡片收尾”**：出队时跳过 detached 卡片不再清 pending 滤镜/标记已处理 ——
+  节点被 B 站复用回插时会因为"已处理"而永远不糊（或因为清过滤镜而亮一帧），保持原样更安全。
+- dev 构建新增 URL 标记 `#bl-flash-probe`：新插入的卡片/广告若在任何检查点（插入时 / 下一帧 / +150ms）
+  没有被遮盖，会打印 `[FLASH][dev]` 到控制台，便于以后回归这个现象。
+
+### 修复（预覆盖“永久模糊”）与浏览器测试钩子
+
+- **修复预覆盖“永久模糊”**：`markCardPendingDone` 以前只给 `getRealVideoCardElement()` 归一后的
+  元素打“已判定”标记，而 CSS 预覆盖命中的是**卡片选择器** —— 两者不是同一个元素时（搜索页真实元素
+  是父级、主页部分卡片是外层 `.feed-card`），CSS 罩子永远摘不掉，整页卡片会一直保持模糊。
+  现在卡片元素与真实元素都会打标记；并在 `scanAndBlockVideoCards` 里加了兜底：
+  凡是已判定/已屏蔽的卡片都会补打标记（扫描本身是周期性的，可自愈）。
+- **dev 新增浏览器测试钩子**：`#bl-mute`（强制暂停并静音所有音视频，测试视频页必须带）、
+  `#bl-cover-audit`（3s/10s 打印预覆盖/队列状态）。工程级测试约定见仓库根 `AGENTS.md`。
+
 ## [2.0.3] - 管理面板半透明滤镜改为可选
 
 ### 新增

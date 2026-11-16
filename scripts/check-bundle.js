@@ -73,7 +73,7 @@ function check(name, ok, detail) {
 }
 
 /** 灰度规则：selector 与 filter 必须落在**同一条规则**里，不能只是注释里出现过。 */
-const GRAYSCALE_RULE_RE = /\.bilibili-blacklist-grayscale\s*\{[^}]*filter\s*:\s*grayscale\(\s*95%\s*\)/;
+const GRAYSCALE_RULE_RE = /\.bilibili-blacklist-grayscale-overlay\s*\{[^}]*backdrop-filter\s*:\s*grayscale\(\s*95%\s*\)/;
 
 /* ============ 面板半透明滤镜（task-1 契约）的定位 / 读取辅助 ============ */
 
@@ -269,17 +269,21 @@ function runSpacePageScenario() {
   const initError = h.init();
   check('空间页场景：initializeScript 不抛异常', !initError, initError && initError.stack);
 
-  const bodyHasClass = () => h.document.body.classList.contains('bilibili-blacklist-grayscale');
+  const grayscaleOverlay = () => h.findByClass('bilibili-blacklist-grayscale-overlay');
+  const overlayDisplay = () => {
+    const el = grayscaleOverlay();
+    return el ? el.style.display : null;
+  };
 
   check(
-    '空间页：命中黑名单的 UP 给 document.body 加整页灰度类',
-    bodyHasClass(),
-    'document.body classList = "' + h.document.body.classList.toString() + '"'
+    '空间页：命中黑名单的 UP 打开整页灰度遮罩（display=block）',
+    overlayDisplay() === 'block',
+    '灰度遮罩 display = ' + JSON.stringify(overlayDisplay())
   );
 
   // 断言的是**注入样式去掉注释后**的文本：只描述该规则的注释不算数
   check(
-    '空间页：.bilibili-blacklist-grayscale 灰度规则真实存在于注入样式（非注释）',
+    '空间页：.bilibili-blacklist-grayscale-overlay 用 backdrop-filter 实现灰度（不再给 body 加 filter）',
     GRAYSCALE_RULE_RE.test(h.injectedCssWithoutComments()),
     '注入样式 ' + h.styles.length + ' 段，剔除注释后未匹配到该规则'
   );
@@ -290,16 +294,16 @@ function runSpacePageScenario() {
 
   button.click(); // 已屏蔽 → 点击即取消屏蔽
   check(
-    '空间页：取消屏蔽后整页灰度类被移除',
-    !bodyHasClass(),
-    'document.body classList = "' + h.document.body.classList.toString() + '"'
+    '空间页：取消屏蔽后整页灰度遮罩关闭（display=none）',
+    overlayDisplay() === 'none',
+    '灰度遮罩 display = ' + JSON.stringify(overlayDisplay())
   );
 
   button.click(); // 重新加入黑名单
   check(
-    '空间页：重新屏蔽后整页灰度类恢复',
-    bodyHasClass(),
-    'document.body classList = "' + h.document.body.classList.toString() + '"'
+    '空间页：重新屏蔽后整页灰度遮罩恢复（display=block）',
+    overlayDisplay() === 'block',
+    '灰度遮罩 display = ' + JSON.stringify(overlayDisplay())
   );
 }
 
@@ -316,10 +320,11 @@ function runSpacePageNotBlockedScenario() {
 
   const initError = h.init();
   check('空间页反向场景：initializeScript 不抛异常', !initError, initError && initError.stack);
+  const overlay = h.findByClass('bilibili-blacklist-grayscale-overlay');
   check(
-    '空间页：未命中黑名单的 UP 不会给整页加灰度',
-    !h.document.body.classList.contains('bilibili-blacklist-grayscale'),
-    'document.body classList = "' + h.document.body.classList.toString() + '"'
+    '空间页：未命中黑名单的 UP 不会打开整页灰度遮罩',
+    !overlay || overlay.style.display !== 'block',
+    '灰度遮罩 display = ' + JSON.stringify(overlay ? overlay.style.display : null)
   );
 }
 

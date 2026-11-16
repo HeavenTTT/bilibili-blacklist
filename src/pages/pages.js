@@ -46,6 +46,28 @@ function initializeScript() {
   } else {
     return; // 不支持的页面不进行初始化
   }
+
+  // 页面类型类在求值期就打上了（见文件末尾 applyPageKindClassEarly）；这里补一次（防求值期异常），
+  // 并同步“未处理预覆盖”类：关闭了「加载时立即隐藏」或处于「取消屏蔽」时不应该罩卡片。
+  const pageKind = getCurrentPageKind();
+  if (pageKind) {
+    document.documentElement.classList.add("bilibili-blacklist-page-" + pageKind);
+  }
+  syncPendingCoverClass();
+
+  // 非播放页的兜底巡检：这些页面没有自己的周期扫描，只有首屏一次的 600~800ms 补扫。
+  // 一旦观察根被 B 站整块替换（观察器绑在游离节点上，此后新卡片全部漏掉），
+  // 或队列因异常中断后没有新卡片来唤醒，就会出现“部分卡片一直糊着/新卡片不再被屏蔽”，
+  // 且只能靠刷新页面恢复。这里每 8s 兜一次：重连观察根 + 强制全量扫一遍。
+  // 播放页已有自己的 2.5s 定时器（含 ensureObserverAttached），用户空间页没有卡片列表，都跳过。
+  if (!isCurrentPageVideo() && !isCurrentUserSpace()) {
+    setInterval(() => {
+      ensureObserverAttached(); // 观察根被整体替换时重连
+      lastBlockScanExecutionTime = 0; // 绕过节流，保证这一轮真的扫一次
+      scanAndBlockVideoCards();
+    }, 8000);
+  }
+
   createBlacklistPanel(); // 创建管理面板
   // 顶栏管理按钮：**视频页必须延迟挂载**，这里不能无差别立即插。
   //
@@ -68,6 +90,27 @@ function initializeScript() {
   }
   blInfo("[🫥BlackList] 脚本已加载🥔");
 }
+/// 干净的全球化支持页面
+const LANG_STR = [
+  "zh-Hans", // 简体中文
+  "zh-Hant", // 繁體中文
+  "en",      // English
+  "ja",      // 日本語
+  "th",      // ภาษาไทย
+  "ar",      // العربية
+  "pt",      // Português 
+  "es",      // Español
+  "id",      // Bahasa Indonesia
+  "ms",      // Bahasa Melayu
+  "ru",      // Русский
+  "tr",      // Türkçe
+  "vi"       // Tiếng Việt
+];
+// 辅助函数：生成所有可能的前缀
+// 将 zh-Hans 转换为空字符串 "" (即无前缀)，其他转换为 "/en", "/ja" 等
+function getLangPrefixes() {
+  return LANG_STR.map(lang => `/${lang}`);
+}
 let isfirstLoad = true;// 监听DOMContentLoaded并检查readyState以进行早期初始化
 // initializeScript 内部已通过 isfirstLoad 保证只执行一次
 document.addEventListener("DOMContentLoaded", initializeScript);
@@ -86,7 +129,19 @@ document.addEventListener("DOMContentLoaded", initializeScript);
  */
 function isCurrentPageMain() {
   if (location.hostname !== "www.bilibili.com") return false;
-  return location.pathname === "/" || location.pathname === "/index.html";
+  
+  const path = location.pathname;
+  const prefixes = getLangPrefixes(); 
+  // prefixes 结果: ["", "/zh-Hant", "/en", "/ja", "/th", ...]
+
+  return prefixes.some(prefix => {
+    // 针对默认前缀 "" 生成: "/" 和 "/index.html"
+    // 针对其他前缀 "/en" 生成: "/en/", "/en/index.html", "/en"
+    const rootPath = prefix === "" ? "/" : `${prefix}/`;
+    const indexPath = `${prefix}/index.html`;
+    
+    return path === rootPath || path === indexPath || path === prefix;
+  });
 }
 
 /**
@@ -228,7 +283,12 @@ function resetSearchPageCardState() {
  * @returns {boolean} 如果是视频播放页则返回true，否则返回false。
  */
 function isCurrentPageVideo() {
-  return location.pathname.startsWith("/video/");
+  const path = location.pathname;
+  const prefixes = getLangPrefixes();
+
+  // 遍历所有前缀，只要路径以 "/语言前缀/video/" 开头即可
+  // 如果 prefix 是 ""，则匹配 "/video/"
+  return prefixes.some(prefix => path.startsWith(`${prefix}/video/`));
 }
 
 /**
@@ -534,6 +594,31 @@ function initializeUserSpace() {
   }
 }
 
+// 空间页整页灰度遮罩元素（只创建一次，用 display 切换）
+let userSpaceGrayscaleOverlay = null;
+
+/**
+ * 打开 / 关闭空间页的「整页灰度」遮罩。
+ *
+ * 实现要点：**不要**给 document.body 加 filter ——
+ *   1) filter 作用于全部后代，插件自己的管理面板也是 body 的子元素，会被一起灰掉；
+ *   2) 祖先 filter 会给 position:fixed 的后代建立包含块，B 站吸顶栏因此变成随页面滚动，
+ *      管理面板的定位基准也会从视口变成 body。
+ * 改为在 body 上插一层 pointer-events:none 的固定定位遮罩，对**背景**做
+ * backdrop-filter: grayscale(95%)：页面视觉仍是整体黑白，但没有上面两个副作用。
+ *
+ * 遮罩元素只创建一次、用 display 切换（不反复插删），便于幂等与测试断言。
+ */
+function setUserSpaceGrayscale(enabled) {
+  if (!userSpaceGrayscaleOverlay) {
+    userSpaceGrayscaleOverlay = document.createElement("div");
+    userSpaceGrayscaleOverlay.id = "bilibili-blacklist-grayscale-overlay";
+    userSpaceGrayscaleOverlay.className = "bilibili-blacklist-grayscale-overlay";
+    document.body.appendChild(userSpaceGrayscaleOverlay);
+  }
+  userSpaceGrayscaleOverlay.style.display = enabled ? "block" : "none";
+}
+
 /**
  * 在用户空间页面上的UP主名称元素添加屏蔽/取消屏蔽按钮。
  * @param {HTMLElement} upNameElement - 包含UP主名称的元素。
@@ -552,17 +637,15 @@ function addBlockButtonToUserSpace(upNameElement) {
   button.className = "bilibili-blacklist-up-block-btn";
   button.textContent = "屏蔽";
 
-  // 刷新按钮状态，并按屏蔽状态给整页加/去灰度
+  // 刷新按钮状态，并按屏蔽状态开/关整页灰度遮罩
   //
-  // ⚠️ 命中黑名单时给 document.body 加 .bilibili-blacklist-grayscale
-  // （filter: grayscale(95%)）是**有意保留**的既有行为：空间主人被屏蔽 → 整个空间页黑白。
-  // 2.0.1 曾以"会误伤合集/收藏夹"为由删掉它，现已按需求恢复（见 CHANGELOG 的 [2.0.2] 条目）。
-  // 已知代价，删之前请先确认这不是需求：
-  //   1) 在 favlist / 合集页，与该 UP 无关的合集视频也会一起变灰；
-  //   2) filter 会为 position: fixed 的后代建立包含块，B 站吸顶栏改为随页面滚动；
-  //   3) 插件自己的管理面板（position: fixed）同样会变灰。
-  // 若要去掉这些代价，正确做法是把效果改成全屏 backdrop-filter 遮罩层（不动 document.body），
-  // 而不是删掉这个类 —— 删掉等于空间页完全失去整体视觉提示。
+  // ⚠️ 命中黑名单时让整个空间页黑白是**有意保留**的既有行为
+  // （空间主人被屏蔽 → 整个 space.bilibili.com 变灰）。
+  // 2.0.1 曾以"会误伤合集/收藏夹"为由整体删掉，2.0.2 已按需求恢复。
+  // 现在的实现是 setUserSpaceGrayscale()：给 body 插一层 pointer-events:none 的固定遮罩、
+  // 用 backdrop-filter 做灰度，**不再给 document.body 加 filter** ——
+  // 后者会让插件自己的管理面板一起变灰，并让吸顶栏/面板的 position:fixed 失去视口基准。
+  // 若要改动这段，请保持“整页黑白 + 面板不受影响”这两个约束。
   const refreshButtonStatus = () => {
     const blocked = isBlacklisted(upName);
     if (blocked) {
@@ -570,13 +653,13 @@ function addBlockButtonToUserSpace(upNameElement) {
       button.style.backgroundColor = "#dddddd";
       button.style.border = "1px solid #ccc";
       upNameElement.style.textDecoration = "line-through"; // 添加删除线
-      document.body.classList.add("bilibili-blacklist-grayscale"); // 添加整页灰度
+      setUserSpaceGrayscale(true); // 打开整页灰度遮罩
     } else {
       button.textContent = "屏蔽";
       button.style.backgroundColor = "#fb7299";
       button.style.border = "1px solid #fb7299";
       upNameElement.style.textDecoration = "none"; // 移除删除线
-      document.body.classList.remove("bilibili-blacklist-grayscale"); // 移除整页灰度
+      setUserSpaceGrayscale(false); // 关闭整页灰度遮罩
     }
   };
 
@@ -595,3 +678,31 @@ function addBlockButtonToUserSpace(upNameElement) {
 
   upNameElement.appendChild(button);
 }
+
+/**
+ * 当前页面的类型标识（供「未处理卡片」的 CSS 预覆盖选择器使用）。
+ * 顺序与 initializeScript 的分派顺序保持一致。
+ * @returns {string|null}
+ */
+function getCurrentPageKind() {
+  if (isCurrentPageMain()) return "main";
+  if (isCurrentPageSearch()) return "search";
+  if (isCurrentPageVideo()) return "video";
+  if (isCurrentPageCategory()) return "category";
+  if (isCurrentPageRanking()) return "ranking";
+  if (isCurrentPageDynamic()) return "dynamic";
+  return null;
+}
+
+// 在**求值期**就给 <html> 打上页面类型类，而不是等 DOMContentLoaded：
+// 卡片/广告可能在初始化之前就被 B 站插入并绘制，类越早到位，“第一帧即遮盖”越可靠。
+(function applyPageKindClassEarly() {
+  try {
+    const kind = getCurrentPageKind();
+    if (kind) {
+      document.documentElement.classList.add("bilibili-blacklist-page-" + kind);
+    }
+  } catch (e) {
+    /* 页面环境异常时忽略：initializeScript 里还会再补一次 */
+  }
+})();

@@ -131,6 +131,7 @@ function createSettingToggleButton(labelText, configKey, title = null) {
     globalPluginConfig[configKey] = !globalPluginConfig[configKey];
     refreshButtonAppearance();
     saveGlobalConfigToStorage();
+    onGlobalConfigSaved(configKey); // 影响判定/外观的开关改动后重判当前页卡片
     if (configKey === "flagHoverReveal" && !globalPluginConfig[configKey]) {
       restoreAllBlockedVideoOverlays();
     }
@@ -193,6 +194,7 @@ function createSettingInput(labelText, configKey, title = null) {
     if (isInRange) {
       globalPluginConfig[configKey] = val;
       saveGlobalConfigToStorage();
+      onGlobalConfigSaved(configKey); // 影响判定/外观的配置改动后重判当前页卡片
     } else {
       alert(`请输入${rangeText}之间的有效数字！`);
     }
@@ -219,6 +221,7 @@ function createSettingSelect(labelText, configKey, title = null, options = []) {
   select.addEventListener("change", () => {
     globalPluginConfig[configKey] = select.value;
     saveGlobalConfigToStorage();
+    onGlobalConfigSaved(configKey); // 影响判定/外观的配置改动后重判当前页卡片
   });
 
   // 按当前配置值选中对应项
@@ -281,6 +284,7 @@ function createSettingRangeSlider(labelText, configKey, title = null) {
   // 松手才落盘：拖动过程会连发 input，写存储留到 change
   input.addEventListener("change", () => {
     saveGlobalConfigToStorage();
+    onGlobalConfigSaved(configKey); // 影响判定/外观的配置改动后重判当前页卡片
   });
 
   container.appendChild(label);
