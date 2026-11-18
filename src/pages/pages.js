@@ -288,7 +288,7 @@ function isCurrentPageVideo() {
 
   // 遍历所有前缀，只要路径以 "/语言前缀/video/" 开头即可
   // 如果 prefix 是 ""，则匹配 "/video/"
-  return prefixes.some(prefix => path.startsWith(`${prefix}/video/`));
+  return prefixes.some(prefix => path.startsWith(`${prefix}/video/`)) || location.pathname.startsWith("/video/");
 }
 
 /**
